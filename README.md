@@ -1,23 +1,107 @@
-## 工作流程
+# Simple Steam Scraper
 
-### 步骤 1: 基础信息抓取
+一个简洁的 Steam 游戏数据爬虫工具。
 
-basic_scraper.py 首先抓取 Steam 商店页面上的基础信息。对于每一款游戏，它会获取每个游戏的以下信息并将其保存到一个.xlsx文件中：
+## 功能特性
 
-- 游戏的 app_id
-- 游戏名称
-- 发行日期
-- 游戏价格
-- 开发商、发行商
-- 游戏标签
-- 游戏简介
+- 🎮 爬取 Steam 商店游戏基础信息（名称、价格、开发商、类型等）
+- 📊 爬取游戏评价历史数据（好评/差评数量按日期统计）
+- 💾 导出为 Excel 文件
+- ⏸️ 支持断点续爬
+- ⚙️ 可配置的请求参数
 
-同时，basic_scraper.py 会将所有抓取到的 app_id 通过保存为 steam_appids.txt ，供后续使用。
+## 快速开始
 
-### 步骤 2: 评价信息抓取
+### 安装依赖
 
-在 basic_scraper.py 完成基础信息抓取并保存后，运行 recommendations_scraper.py 进行评价统计信息获取：
+```bash
+pip install requests beautifulsoup4 pandas openpyxl pyyaml
+```
 
-- recommendations_scraper.py 会读取 basic_scraper.py 生成的 steam_appids.txt。
-- 对于每个 app_id，它会发送请求，获取该游戏的评价信息统计，包括日期及其对应的好评和差评的数量。
+### 查看帮助
 
+```bash
+python main.py --help
+```
+
+### 爬取全部游戏（推荐-完整流程）
+
+```bash
+# 爬取全部游戏信息 + 评价历史（自动获取总页数）
+python main.py all
+
+# 如果中途中断，可从断点继续
+python main.py all --resume
+```
+
+### 分步骤运行
+
+```bash
+# 第一步：爬取游戏基础信息
+python main.py games              # 爬取全部页面
+python main.py games --pages 100  # 只爬取前 100 页
+
+# 第二步：爬取评价历史（基于上一步生成的 app_id 列表）
+python main.py reviews
+```
+
+### 清理缓存和临时文件
+
+```bash
+python main.py clean
+``` 
+
+### 输出文件
+
+所有数据文件保存在 `data/` 目录：
+
+| 文件 | 说明 |
+|------|------|
+| `steam_games_*.xlsx` | 游戏基础信息 |
+| `steam_appids.txt` | 游戏 ID 列表 |
+| `steam_recommendations_data/` | 每个游戏的评价历史 |
+
+## 项目结构
+
+```
+simple_steam_scraper/
+├── src/                          # 核心模块
+│   ├── config.py                 # 配置管理
+│   ├── models.py                 # 数据模型
+│   ├── scrapers/                 # 爬虫模块
+│   │   ├── game_scraper.py       # 游戏信息爬虫
+│   │   └── review_scraper.py     # 评价历史爬虫
+│   ├── exporters/                # 导出模块
+│   │   └── excel.py              # Excel 导出
+│   └── utils/                    # 工具模块
+│       ├── http_client.py        # HTTP 客户端
+│       └── checkpoint.py         # 断点续爬
+├── data/                         # 数据输出目录
+├── config.yaml                   # 配置文件
+├── main.py                       # 统一入口
+└── README.md
+```
+
+## 配置说明
+
+编辑 `config.yaml` 自定义爬虫行为：
+
+```yaml
+scraper:
+  language: english    # Steam 商店语言
+  currency: us         # 货币代码
+  category: "998"      # 分类 ID（998 为游戏）
+
+http:
+  timeout: 30          # 请求超时（秒）
+  max_retries: 3       # 最大重试次数
+  min_delay: 1.0       # 请求间隔最小值（秒）
+  max_delay: 3.0       # 请求间隔最大值（秒）
+
+output:
+  data_dir: ./data     # 数据输出目录
+```
+
+## License
+
+MIT License
