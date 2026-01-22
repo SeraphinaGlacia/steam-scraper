@@ -1,0 +1,16 @@
+# Steam 爬虫配置文件
+
+scraper:
+  language: english       # Steam 商店语言
+  currency: us            # 货币代码
+  category: "998"         # 分类 ID（998 为游戏）
+
+http:
+  timeout: 30             # 请求超时（秒）
+  max_retries: 3          # 最大重试次数
+  min_delay: 1.0          # 请求间隔最小值（秒）
+  max_delay: 3.0          # 请求间隔最大值（秒）
+
+output:
+  data_dir: ./data        # 数据输出目录
+  checkpoint_file: .checkpoint.json  # 断点文件
