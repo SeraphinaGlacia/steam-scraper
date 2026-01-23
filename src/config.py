@@ -63,6 +63,7 @@ class OutputConfig:
 
     data_dir: str = "./data"
     checkpoint_file: str = ".checkpoint.json"
+    failure_log_file: str = "failures.json"
 
 
 @dataclass

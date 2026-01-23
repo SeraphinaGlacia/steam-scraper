@@ -32,16 +32,19 @@ class GameScraper:
         self,
         config: Optional[Config] = None,
         checkpoint: Optional[Checkpoint] = None,
+        failure_manager: Optional[Any] = None,
     ):
         """初始化游戏爬虫。
 
         Args:
             config: 可选的配置对象。
             checkpoint: 可选的断点管理器。
+            failure_manager: 可选的失败管理器。
         """
         self.config = config or get_config()
         self.client = HttpClient(self.config)
         self.checkpoint = checkpoint
+        self.failure_manager = failure_manager
         self.games: list[GameInfo] = []
 
         # 构建基础 URL（保持原有参数）
@@ -96,7 +99,10 @@ class GameScraper:
                 return GameInfo.from_api_response(app_id, game_data)
 
         except Exception as e:
-            print(f"获取游戏 {app_id} 详情失败: {e}")
+            error_msg = f"获取游戏 {app_id} 详情失败: {e}"
+            print(error_msg)
+            if self.failure_manager:
+                self.failure_manager.log_failure("game", app_id, str(e))
 
         return None
 

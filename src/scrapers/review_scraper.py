@@ -31,16 +31,19 @@ class ReviewScraper:
         self,
         config: Optional[Config] = None,
         checkpoint: Optional[Checkpoint] = None,
+        failure_manager: Optional[Any] = None,
     ):
         """初始化评价爬虫。
 
         Args:
             config: 可选的配置对象。
             checkpoint: 可选的断点管理器。
+            failure_manager: 可选的失败管理器。
         """
         self.config = config or get_config()
         self.client = HttpClient(self.config)
         self.checkpoint = checkpoint
+        self.failure_manager = failure_manager
 
     def scrape_reviews(self, app_id: int) -> list[ReviewSnapshot]:
         """爬取指定游戏的评价历史数据。
@@ -80,7 +83,10 @@ class ReviewScraper:
                 reviews.append(review)
 
         except Exception as e:
-            print(f"爬取游戏 {app_id} 评价历史失败: {e}")
+            error_msg = f"爬取游戏 {app_id} 评价历史失败: {e}"
+            print(error_msg)
+            if self.failure_manager:
+                self.failure_manager.log_failure("review", app_id, str(e))
             if self.checkpoint:
                 self.checkpoint.mark_appid_failed(app_id)
 
