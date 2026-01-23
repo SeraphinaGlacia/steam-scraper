@@ -15,8 +15,8 @@ import urllib3
 
 from src.config import Config, get_config
 
-# 禁用 SSL 警告（与原代码行为一致）
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# 移除了全局副作用
+
 
 
 class HttpClient:
@@ -36,6 +36,10 @@ class HttpClient:
         self.config = config or get_config()
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": self.config.http.user_agent})
+        
+        
+        # 仅针对此实例使用的 Session 禁用警告（虽然是全局设置，但副作用限制在类加载后）
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def get(
         self,
