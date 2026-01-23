@@ -1,14 +1,30 @@
-# Simple Steam Scraper
+<div align="center">
+  <h1>Simple Steam Scraper</h1>
+  <p>
+    A lightweight, modular, and resumable Steam game data scraper based on Python.<br>
+    Designed to help data analysis enthusiasts or researchers quickly obtain basic information and historical review trends of Steam store games.
+  </p>
 
-[中文](README.md) | [English](README_EN.md)
+  <p>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/SeraphinaGlacia/simple-steam-scraper?style=flat-square" alt="License"></a>
+    <img src="https://img.shields.io/badge/python-3.8+-blue?style=flat-square&logo=python&logoColor=white" alt="Python Version">
+    <img src="https://img.shields.io/github/repo-size/SeraphinaGlacia/simple-steam-scraper?style=flat-square" alt="Repo Size">
+  </p>
+
+  <p>
+    <a href="README.md">中文</a> • 
+    <a href="README_EN.md">English</a>
+  </p>
+</div>
+
+---
 
 > [!WARNING]
 > This documentation was translated by Gemini. I cannot guarantee its complete accuracy.
+> 
+> 本文档由 Gemini 翻译，无法保证其完全准确。
 
-
-A lightweight, modular, and resumable Steam game data scraper based on Python. It is designed to help data analysis enthusiasts or researchers quickly obtain basic information and historical review trends of Steam store games. Data is exported directly to .xlsx format for easy subsequent visualization analysis or commercial insight.
-
-## Features
+## ✨ Features
 
 - 🎮 **Scrape Game Basic Info**: Name, price, developer, genre, etc.
 - 📊 **Scrape Review History**: Positive/Negative review counts categorized by date.
@@ -17,7 +33,7 @@ A lightweight, modular, and resumable Steam game data scraper based on Python. I
 - 🔄 **Auto-Retry**: Automatically records failures and supports retrying.
 - ⚙️ **Configurable**: Adjustable request parameters.
 
-## Quick Start
+## 🚀 Quick Start
 
 ### 0. Get the Code
 
@@ -36,19 +52,19 @@ A lightweight, modular, and resumable Steam game data scraper based on Python. I
     cd simple-steam-scraper
     ```
 
-### 1. Install Dependencies
+### 1. 📦 Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. View Help
+### 2. 📖 View Help
 
 ```bash
 python main.py --help
 ```
 
-### 3. Scrape All Games (Recommended - Full Flow)
+### 3. 🕸️ Scrape All Games (Recommended - Full Flow)
 
 ```bash
 # Scrape all game info + review history (automatically gets total pages)
@@ -58,7 +74,7 @@ python main.py all
 python main.py all --resume
 ```
 
-### 4. Run Step by Step (Advanced)
+### 4. 🪜 Run Step by Step (Advanced)
 
 ```bash
 # Step 1: Scrape basic game info
@@ -69,13 +85,13 @@ python main.py games --pages 100  # Scrape only the first 100 pages
 python main.py reviews
 ```
 
-### 5. Clean Cache and Temp Files
+### 5. 🧹 Clean Cache and Temp Files
 
 ```bash
 python main.py clean
 ```
 
-### 6. Retry Failures
+### 6. 🔄 Retry Failures
 
 If network errors occur during scraping, the program automatically records failed items. Use the following commands to retry:
 
@@ -90,7 +106,7 @@ python main.py retry --type game
 python main.py retry --type review
 ```
 
-### 7. Output Files
+### 7. 📂 Output Files
 
 All data files are saved in the `data/` directory:
 
@@ -100,7 +116,7 @@ All data files are saved in the `data/` directory:
 | `steam_appids.txt` | List of Game IDs |
 | `steam_recommendations_data/` | Review history for each game |
 
-## Project Structure
+## 🏗️ Project Structure
 
 ```
 simple_steam_scraper/
@@ -123,7 +139,7 @@ simple_steam_scraper/
 └── README_EN.md                  # English Documentation
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 Edit `config.yaml` to customize scraper behavior:
 
@@ -143,7 +159,7 @@ output:
   data_dir: ./data     # Data Output Directory
 ```
 
-## Appendix: How It Works
+## 🧩 Appendix: How It Works
 
 This program automates the collection and integration of Steam game data by simulating user browsing and querying data interfaces. The core process and file interactions are as follows:
 
@@ -162,6 +178,8 @@ This program automates the collection and integration of Steam game data by simu
 4.  **Completion**
     - Finally, the program ensures that all collected information (basic details + review history) is completely saved, facilitating direct reading by subsequent analysis tools.
 
-## License
+---
 
-MIT License
+<div align="center">
+  <p>MIT License © 2025</p>
+</div>
