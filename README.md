@@ -8,6 +8,7 @@
 - 📊 爬取游戏评价历史数据（好评/差评数量按日期统计）
 - 💾 导出为 .xlsx 文件
 - ⏸️ 支持断点续爬
+- 🔄 支持失败自动记录与重试
 - ⚙️ 可配置的请求参数
 
 ## 快速开始
@@ -66,9 +67,24 @@ python main.py reviews
 
 ```bash
 python main.py clean
-``` 
+```
 
-### 6. 输出文件
+### 6. 失败重试
+
+如果爬取过程中出现网络错误等问题，程序会自动记录失败项目。可以使用以下命令进行重试：
+
+```bash
+# 重试所有失败项目（游戏信息 + 评价）
+python main.py retry
+
+# 仅重试失败的游戏基础信息
+python main.py retry --type game
+
+# 仅重试失败的评价历史
+python main.py retry --type review
+```
+
+### 7. 输出文件
 
 所有数据文件保存在 `data/` 目录：
 
@@ -92,7 +108,8 @@ simple_steam_scraper/
 │   │   └── excel.py              # Excel 导出
 │   └── utils/                    # 工具模块
 │       ├── http_client.py        # HTTP 客户端
-│       └── checkpoint.py         # 断点续爬
+│       ├── checkpoint.py         # 断点续爬
+│       └── failure_manager.py    # 失败记录管理
 ├── data/                         # 数据输出目录
 ├── config.yaml                   # 配置文件
 ├── main.py                       # 统一入口
