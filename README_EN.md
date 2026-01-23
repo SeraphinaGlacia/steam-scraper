@@ -1,4 +1,7 @@
 <div align="center">
+  <p align="center">
+    <img src="assets/demo.svg" alt="Terminal Demo" width="600">
+  </p>
   <h1>Simple Steam Scraper</h1>
   <p>
     <strong>A high-performance Steam data scraper based on Python, bringing you an ultimate data scraping experience.</strong>

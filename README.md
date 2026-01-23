@@ -1,4 +1,8 @@
 <div align="center">
+  <p align="center">
+    <img src="assets/demo.svg" alt="Terminal Demo" width="600">
+  </p>
+
   <h1>Simple Steam Scraper</h1>
   <p>
     <strong>一个基于 Python 的高性能 Steam 数据爬虫，为您带来极致的数据爬取体验。</strong>
