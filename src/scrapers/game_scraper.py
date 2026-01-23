@@ -1,16 +1,18 @@
 """
 游戏信息爬虫模块。
 
-从 Steam 商店爬取游戏基础信息。
+从 Steam 商店爬取游戏基础信息，支持并发爬取和数据库存储。
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 
 from bs4 import BeautifulSoup
 
 from src.config import Config, get_config
+from src.database import DatabaseManager
 from src.models import GameInfo
 from src.utils.checkpoint import Checkpoint
 from src.utils.http_client import HttpClient
@@ -25,7 +27,7 @@ class GameScraper:
         config: 配置对象。
         client: HTTP 客户端。
         checkpoint: 断点管理器。
-        games: 已爬取的游戏信息列表。
+        db: 数据库管理器。
     """
 
     def __init__(
@@ -45,9 +47,9 @@ class GameScraper:
         self.client = HttpClient(self.config)
         self.checkpoint = checkpoint
         self.failure_manager = failure_manager
-        self.games: list[GameInfo] = []
+        self.db = DatabaseManager(self.config.output.db_path)
 
-        # 构建基础 URL（保持原有参数）
+        # 构建基础 URL
         self.base_url = (
             f"https://store.steampowered.com/search/"
             f"?l={self.config.scraper.language}"
@@ -106,14 +108,14 @@ class GameScraper:
 
         return None
 
-    def scrape_page(self, page: int) -> list[GameInfo]:
-        """爬取指定页面的游戏列表。
+    def scrape_page_games(self, page: int) -> list[int]:
+        """爬取指定页面的游戏 AppID 列表。
 
         Args:
             page: 页码。
 
         Returns:
-            list[GameInfo]: 该页面的游戏信息列表。
+            list[int]: 该页面的 AppID 列表。
         """
         params = {
             "category1": self.config.scraper.category,
@@ -121,7 +123,7 @@ class GameScraper:
             "page": str(page),
         }
 
-        page_games: list[GameInfo] = []
+        app_ids = []
 
         try:
             response = self.client.get(self.base_url, params=params, delay=False)
@@ -131,71 +133,93 @@ class GameScraper:
 
             for game in games:
                 app_id_str = game.get("data-ds-appid")
-                if not app_id_str:
-                    continue
-
-                app_id = int(app_id_str)
-
-                # 检查是否已在断点中完成
-                if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
-                    continue
-
-                details = self.get_game_details(app_id)
-
-                if details:
-                    page_games.append(details)
-                    self.games.append(details)
-                    print(f"已爬取: {details.name}")
-
-                    if self.checkpoint:
-                        self.checkpoint.mark_appid_completed(app_id)
+                if app_id_str:
+                    app_ids.append(int(app_id_str))
 
         except Exception as e:
-            print(f"爬取第 {page} 页失败: {e}")
+            print(f"爬取第 {page} 页列表失败: {e}")
 
-        return page_games
+        return app_ids
+
+    def process_game(self, app_id: int) -> Optional[GameInfo]:
+        """处理单个游戏：获取详情并保存。
+
+        Args:
+            app_id: 游戏 ID。
+
+        Returns:
+            Optional[GameInfo]: 游戏详情。
+        """
+        # 检查是否已在断点中完成 or 数据库中已存在
+        if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
+            return None # Skip
+        
+        # 可选：如果数据库已有且不需要更新，也可以跳过
+        # if self.db.is_game_exists(app_id): ...
+
+        details = self.get_game_details(app_id)
+        if details:
+            self.db.save_game(details)
+            print(f"已保存: {details.name} ({app_id})")
+            
+            if self.checkpoint:
+                self.checkpoint.mark_appid_completed(app_id)
+            
+        return details
 
     def run(
         self,
         max_pages: Optional[int] = None,
-        on_page_complete: Optional[Callable[[int, list[GameInfo]], None]] = None,
-    ) -> list[GameInfo]:
-        """运行爬虫。
+    ) -> list[int]:
+        """运行爬虫（并发模式）。
 
         Args:
             max_pages: 可选的最大页数限制。
-            on_page_complete: 可选的页面完成回调函数。
 
         Returns:
-            list[GameInfo]: 所有爬取的游戏信息列表。
+            list[int]: 所有处理过的 app_id。
         """
         total_pages = self.get_total_pages()
         if max_pages:
             total_pages = min(total_pages, max_pages)
 
-        print(f"开始爬取 {total_pages} 页...")
+        print(f"开始爬取 {total_pages} 页，并发数: {self.config.scraper.max_workers}")
+        
+        all_app_ids = []
 
-        for page in range(1, total_pages + 1):
-            # 检查是否已在断点中完成
-            if self.checkpoint and self.checkpoint.is_page_completed(page):
-                print(f"跳过已完成的第 {page} 页")
-                continue
+        # 1. 获取所有页面的 AppID (这部分可以是串行或适当并发，为了简单先串行或小并发)
+        # 考虑到获取页面列表比较快，我们直接在主循环处理
+        
+        # 使用线程池并发处理游戏详情
+        with ThreadPoolExecutor(max_workers=self.config.scraper.max_workers) as executor:
+            for page in range(1, total_pages + 1):
+                if self.checkpoint and self.checkpoint.is_page_completed(page):
+                    print(f"跳过已完成的第 {page} 页")
+                    continue
 
-            print(f"正在爬取第 {page}/{total_pages} 页")
-            page_games = self.scrape_page(page)
+                print(f"正在读取第 {page}/{total_pages} 页列表...")
+                app_ids = self.scrape_page_games(page)
+                
+                if not app_ids:
+                    continue
+                
+                # 提交任务到线程池
+                futures = {executor.submit(self.process_game, app_id): app_id for app_id in app_ids}
+                
+                for future in as_completed(futures):
+                    app_id = futures[future]
+                    try:
+                        future.result()
+                        all_app_ids.append(app_id)
+                    except Exception as e:
+                        print(f"处理游戏 {app_id} 异常: {e}")
 
-            if self.checkpoint:
-                self.checkpoint.mark_page_completed(page)
+                if self.checkpoint:
+                    self.checkpoint.mark_page_completed(page)
 
-            if on_page_complete:
-                on_page_complete(page, page_games)
-
-        return self.games
+        # 最终不再返回 GameInfo 对象列表，而是 AppID 列表，因为数据已入库
+        return all_app_ids
 
     def get_app_ids(self) -> list[int]:
-        """获取所有已爬取游戏的 app_id 列表。
-
-        Returns:
-            list[int]: app_id 列表。
-        """
-        return [game.app_id for game in self.games]
+        """从数据库获取所有 app_id。"""
+        return self.db.get_all_app_ids()

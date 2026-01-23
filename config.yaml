@@ -4,6 +4,7 @@ scraper:
   language: english       # Steam 商店语言
   currency: us            # 货币代码
   category: "998"         # 分类 ID（998 为游戏）
+  max_workers: 10         # 并发线程数（默认为 10，过高可能导致 IP 封禁）
 
 http:
   timeout: 30             # 请求超时（秒）

@@ -1,5 +1,5 @@
-requests
-beautifulsoup4
-pandas
-openpyxl
-pyyaml
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+pandas>=2.2.0
+openpyxl>=3.1.0
+pyyaml>=6.0.0

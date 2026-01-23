@@ -1,16 +1,18 @@
 """
 评价历史爬虫模块。
 
-从 Steam 获取游戏的评价统计历史数据。
+从 Steam 获取游戏的评价统计历史数据，支持并发爬取和数据库存储。
 """
 
 from __future__ import annotations
 
 import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from src.config import Config, get_config
+from src.database import DatabaseManager
 from src.models import ReviewSnapshot
 from src.utils.checkpoint import Checkpoint
 from src.utils.http_client import HttpClient
@@ -25,6 +27,7 @@ class ReviewScraper:
         config: 配置对象。
         client: HTTP 客户端。
         checkpoint: 断点管理器。
+        db: 数据库管理器。
     """
 
     def __init__(
@@ -44,9 +47,10 @@ class ReviewScraper:
         self.client = HttpClient(self.config)
         self.checkpoint = checkpoint
         self.failure_manager = failure_manager
+        self.db = DatabaseManager(self.config.output.db_path)
 
     def scrape_reviews(self, app_id: int) -> list[ReviewSnapshot]:
-        """爬取指定游戏的评价历史数据。
+        """爬取指定游戏的评价历史数据并保存。
 
         Args:
             app_id: Steam 游戏 ID。
@@ -54,6 +58,10 @@ class ReviewScraper:
         Returns:
             list[ReviewSnapshot]: 评价快照列表。
         """
+        # 检查断点
+        if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
+            return []
+
         url = (
             f"https://store.steampowered.com/appreviewhistogram/{app_id}"
             f"?l=schinese&review_score_preference=0"
@@ -62,7 +70,7 @@ class ReviewScraper:
         reviews: list[ReviewSnapshot] = []
 
         try:
-            data = self.client.get_json(url, delay=False)
+            data = self.client.get_json(url, delay=True)
             rollups = data.get("results", {}).get("rollups", [])
 
             for item in rollups:
@@ -81,6 +89,13 @@ class ReviewScraper:
                     recommendations_down=negative,
                 )
                 reviews.append(review)
+            
+            # 保存到数据库
+            if reviews:
+                self.db.save_reviews(app_id, reviews)
+                if self.checkpoint:
+                    self.checkpoint.mark_appid_completed(app_id)
+                print(f"已保存游戏 {app_id} 的 {len(reviews)} 条评价记录")
 
         except Exception as e:
             error_msg = f"爬取游戏 {app_id} 评价历史失败: {e}"
@@ -95,85 +110,47 @@ class ReviewScraper:
     def scrape_from_file(
         self,
         file_path: str | Path,
-        on_complete: Optional[Callable[[int, list[ReviewSnapshot]], None]] = None,
-    ) -> dict[int, list[ReviewSnapshot]]:
+    ) -> None:
         """从文件读取 app_id 列表并批量爬取评价数据。
 
         Args:
             file_path: 包含 app_id 的文件路径（每行一个 ID）。
-            on_complete: 可选的完成回调函数，每个游戏爬取完成后调用。
-
-        Returns:
-            dict[int, list[ReviewSnapshot]]: app_id 到评价列表的映射。
         """
         file_path = Path(file_path)
         if not file_path.exists():
             print(f"文件 {file_path} 不存在")
-            return {}
+            return
 
-        all_reviews: dict[int, list[ReviewSnapshot]] = {}
-
+        app_ids = []
         with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
                 appid_str = line.strip()
                 if not appid_str:
                     continue
-
                 try:
-                    app_id = int(appid_str)
-
-                    # 检查断点
-                    if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
-                        print(f"跳过已完成的游戏 {app_id}")
-                        continue
-
-                    reviews = self.scrape_reviews(app_id)
-                    all_reviews[app_id] = reviews
-
-                    if self.checkpoint:
-                        self.checkpoint.mark_appid_completed(app_id)
-
-                    if on_complete:
-                        on_complete(app_id, reviews)
-
-                    print(f"已爬取游戏 {app_id} 的 {len(reviews)} 条评价记录")
-
+                    app_ids.append(int(appid_str))
                 except ValueError:
                     print(f"[警告] 无效的 AppID: {appid_str}")
 
-        return all_reviews
+        self.scrape_from_list(app_ids)
 
     def scrape_from_list(
         self,
         app_ids: list[int],
-        on_complete: Optional[Callable[[int, list[ReviewSnapshot]], None]] = None,
-    ) -> dict[int, list[ReviewSnapshot]]:
-        """从列表批量爬取评价数据。
+    ) -> None:
+        """从列表批量爬取评价数据（并发）。
 
         Args:
             app_ids: app_id 列表。
-            on_complete: 可选的完成回调函数。
-
-        Returns:
-            dict[int, list[ReviewSnapshot]]: app_id 到评价列表的映射。
         """
-        all_reviews: dict[int, list[ReviewSnapshot]] = {}
+        print(f"开始爬取 {len(app_ids)} 个游戏的评价，并发数: {self.config.scraper.max_workers}")
 
-        for app_id in app_ids:
-            # 检查断点
-            if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
-                print(f"跳过已完成的游戏 {app_id}")
-                continue
+        with ThreadPoolExecutor(max_workers=self.config.scraper.max_workers) as executor:
+            futures = {executor.submit(self.scrape_reviews, app_id): app_id for app_id in app_ids}
 
-            reviews = self.scrape_reviews(app_id)
-            all_reviews[app_id] = reviews
-
-            if self.checkpoint:
-                self.checkpoint.mark_appid_completed(app_id)
-
-            if on_complete:
-                on_complete(app_id, reviews)
-
-            print(f"已爬取游戏 {app_id} 的 {len(reviews)} 条评价记录")
-
-        return all_reviews
+            for future in as_completed(futures):
+                app_id = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"处理游戏 {app_id} 评价异常: {e}")

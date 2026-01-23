@@ -1,7 +1,7 @@
 """
 Steam 爬虫统一入口。
 
-提供命令行接口来运行爬虫。
+提供命令行接口来运行爬虫，支持并发抓取和数据库存储。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.config import Config
-from src.exporters.excel import ExcelExporter, save_appids_to_file
+from src.database import DatabaseManager
 from src.scrapers.game_scraper import GameScraper
 from src.scrapers.review_scraper import ReviewScraper
 from src.utils.checkpoint import Checkpoint
@@ -29,18 +29,24 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python main.py games              爬取全部游戏基础信息
-  python main.py games --pages 10   只爬取前 10 页
-  python main.py games --resume     从断点恢复爬取
-  python main.py reviews            爬取评价历史
-  python main.py retry              重试所有失败项目
-  python main.py retry --type game  只重试失败的游戏信息
-  python main.py retry --type review 只重试失败的评价
-  python main.py all                完整流程（游戏+评价）
-  python main.py all --resume       完整流程，从断点恢复
-  python main.py clean              清理缓存和临时文件
+  # 基础用法
+  python main.py games              # 爬取所有游戏基础信息
+  python main.py reviews            # 爬取已有游戏的评价历史
 
-输出目录: data/
+  # 高级用法
+  python main.py all                # 完整流程：爬取游戏 -> 爬取评价 -> 导出
+  python main.py games --pages 10   # 仅测试爬取前 10 页
+  python main.py all --resume       # 从上次中断处继续
+
+  # 数据管理
+  python main.py export             # 重新导出数据库到 Excel
+  python main.py clean              # 清理临时文件和缓存
+  python main.py reset              # 重置项目（删除所有数据，慎用！）
+  python main.py retry              # 重试所有失败的任务
+
+输出:
+  data/steam_data.db    (SQLite 数据库，核心存储)
+  data/steam_data.xlsx  (Excel 导出文件，包含 Games 和 Reviews 两个工作表)
         """,
     )
 
@@ -50,112 +56,94 @@ def main() -> None:
     games_parser = subparsers.add_parser(
         "games",
         help="爬取游戏基础信息",
-        description="从 Steam 商店爬取游戏基础信息（名称、价格、开发商等）",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  python main.py games              爬取全部页面
-  python main.py games --pages 50   只爬取前 50 页
-  python main.py games --resume     从断点恢复
-        """,
+        description="从 Steam 商店爬取游戏基础信息（并发）",
     )
     games_parser.add_argument(
         "--pages",
         type=int,
         default=None,
         metavar="N",
-        help="爬取页数，不指定则爬取全部（每页约 25 款游戏）",
-    )
-    games_parser.add_argument(
-        "--output",
-        type=str,
-        default=None,
-        metavar="FILE",
-        help="输出文件名（默认：steam_games_时间戳.xlsx）",
+        help="爬取页数，不指定则爬取全部",
     )
     games_parser.add_argument(
         "--resume",
         action="store_true",
-        help="从断点恢复爬取，适用于中途中断的情况",
+        help="从断点恢复爬取",
     )
 
     # 评价信息爬取命令
     reviews_parser = subparsers.add_parser(
         "reviews",
         help="爬取评价历史信息",
-        description="根据 app_id 列表爬取每个游戏的评价历史曲线",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  python main.py reviews                          使用默认输入文件
-  python main.py reviews --input my_appids.txt    使用自定义文件
-  python main.py reviews --resume                 从断点恢复
-        """,
+        description="根据已爬取的最新的游戏列表，并发爬取评价历史",
     )
     reviews_parser.add_argument(
         "--input",
         type=str,
-        default="data/steam_appids.txt",
+        default=None,
         metavar="FILE",
-        help="app_id 列表文件（默认：data/steam_appids.txt）",
+        help="可选：指定 app_id 列表文件（如果不指定则从数据库读取）",
     )
     reviews_parser.add_argument(
         "--resume",
         action="store_true",
-        help="从断点恢复爬取，跳过已完成的游戏",
+        help="从断点恢复爬取",
     )
 
     # 完整流程命令
     all_parser = subparsers.add_parser(
         "all",
-        help="运行完整爬取流程（游戏信息 + 评价历史）",
-        description="先爬取游戏基础信息，再自动爬取所有游戏的评价历史",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  python main.py all              爬取全部游戏及评价
-  python main.py all --pages 100  只爬取前 100 页的游戏及评价
-  python main.py all --resume     从断点恢复
-        """,
+        help="运行完整爬取流程",
+        description="先爬取游戏基础信息，再自动爬取所有游戏的评价历史，最后导出",
     )
     all_parser.add_argument(
         "--pages",
         type=int,
         default=None,
         metavar="N",
-        help="爬取页数，不指定则爬取全部（每页约 25 款游戏）",
+        help="爬取页数限制",
     )
     all_parser.add_argument(
         "--resume",
         action="store_true",
-        help="从断点恢复爬取，适用于中途中断的情况",
+        help="从断点恢复",
+    )
+
+    # 导出命令
+    export_parser = subparsers.add_parser(
+        "export",
+        help="导出数据到 Excel",
+        description="将数据库中的数据导出为 Excel 文件",
+    )
+    export_parser.add_argument(
+        "--output",
+        type=str,
+        default="data/steam_data.xlsx",
+        help="输出文件名（默认：data/steam_data.xlsx）",
     )
 
     # 清理命令
     subparsers.add_parser(
         "clean",
         help="清理缓存和临时文件",
-        description="删除 __pycache__、.pyc 文件和断点文件",
+    )
+
+    # 重置命令
+    subparsers.add_parser(
+        "reset",
+        help="重置项目（删除所有生成的数据，慎用）",
     )
 
     # 重试命令
     retry_parser = subparsers.add_parser(
         "retry",
         help="重试失败的项目",
-        description="读取失败日志并重新爬取失败的项目",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  python main.py retry              重试所有失败项目
-  python main.py retry --type game  只重试失败的游戏信息
-  python main.py retry --type review 只重试失败的评价
-        """,
     )
     retry_parser.add_argument(
         "--type",
         choices=["game", "review", "all"],
         default="all",
-        help="重试类型（默认：all）",
+        help="重试类型",
     )
 
     args = parser.parse_args()
@@ -173,18 +161,57 @@ def main() -> None:
         run_reviews_scraper(config, args, failure_manager)
     elif args.command == "all":
         run_all(config, args, failure_manager)
+    elif args.command == "export":
+        run_export(config, args)
     elif args.command == "clean":
         run_clean(failure_manager)
+    elif args.command == "reset":
+        run_reset(config, failure_manager)
     elif args.command == "retry":
         run_retry(config, args, failure_manager)
 
+def run_reset(config: Config, failure_manager: FailureManager) -> None:
+    """重置项目，清除所有数据。"""
+    print("⚠️  危险操作：这将删除 data/ 目录下所有文件（数据库、Excel、日志等）以及所有临时文件。")
+    print("⚠️  此操作不可恢复！")
+    
+    confirm1 = input("确认要重置吗？(y/N): ").strip().lower()
+    if confirm1 != "y":
+        print("操作已取消。")
+        return
 
-def run_clean(failure_manager: Optional[FailureManager] = None) -> None:
-    """清理缓存和临时文件。
+    confirm2 = input("再次确认：你真的要删除所有数据吗？(y/N): ").strip().lower()
+    if confirm2 != "y":
+        print("操作已取消。")
+        return
 
-    Args:
-        failure_manager: 可选的失败管理器。
-    """
+    print("\n开始重置...")
+    
+    # 1. 清理 data 目录
+    data_dir = Path(config.output.data_dir)
+    if data_dir.exists():
+        for item in data_dir.glob("*"):
+            if item.name == ".gitkeep": # 保留 gitkeep
+                continue
+            try:
+                if item.is_file():
+                    item.unlink()
+                elif item.is_dir():
+                    shutil.rmtree(item)
+                print(f"已删除: {item}")
+            except Exception as e:
+                print(f"删除失败 {item}: {e}")
+    else:
+        print(f"目录不存在: {data_dir}")
+
+    # 2. 运行常规清理
+    run_clean(failure_manager)
+
+    print("\n✨ 项目已重置。")
+
+
+def run_clean(failure_manager: FailureManager | None = None) -> None:
+    """清理缓存和临时文件。"""
     project_root = Path(__file__).parent
     cleaned = 0
 
@@ -226,106 +253,92 @@ def run_clean(failure_manager: Optional[FailureManager] = None) -> None:
 def run_games_scraper(
     config: Config, args: argparse.Namespace, failure_manager: FailureManager
 ) -> None:
-    """运行游戏信息爬虫。
-
-    Args:
-        config: 配置对象。
-        args: 命令行参数。
-        failure_manager: 失败管理器。
-    """
+    """运行游戏信息爬虫。"""
     checkpoint = Checkpoint(config=config) if args.resume else None
 
     scraper = GameScraper(
         config=config, checkpoint=checkpoint, failure_manager=failure_manager
     )
-    games = scraper.run(max_pages=args.pages)
+    scraper.run(max_pages=args.pages)
 
-    exporter = ExcelExporter(config=config)
-    exporter.export_games(games, filename=args.output)
-
-    # 保存 app_id 列表
-    save_appids_to_file(scraper.get_app_ids())
-
-    print(f"完成！共爬取 {len(games)} 款游戏。")
+    print(f"游戏信息爬取完成！数据已存入 {config.output.db_path}")
 
 
 def run_reviews_scraper(
     config: Config, args: argparse.Namespace, failure_manager: FailureManager
 ) -> None:
-    """运行评价历史爬虫。
-
-    Args:
-        config: 配置对象。
-        args: 命令行参数。
-        failure_manager: 失败管理器。
-    """
+    """运行评价历史爬虫。"""
     checkpoint = Checkpoint(config=config) if args.resume else None
-    exporter = ExcelExporter(config=config)
-
+    
     scraper = ReviewScraper(
         config=config, checkpoint=checkpoint, failure_manager=failure_manager
     )
 
-    def on_complete(app_id: int, reviews: list) -> None:
-        """每个游戏完成后的回调。"""
-        if reviews:
-            exporter.export_reviews(app_id, reviews)
+    if args.input:
+        # 从文件读取
+        scraper.scrape_from_file(args.input)
+    else:
+        # 从数据库读取所有 AppID
+        db = DatabaseManager(config.output.db_path)
+        app_ids = db.get_all_app_ids()
+        db.close()
+        
+        if not app_ids:
+            print("数据库中没有游戏数据，请先运行 'python main.py games'")
+            return
+            
+        scraper.scrape_from_list(app_ids)
 
-    scraper.scrape_from_file(args.input, on_complete=on_complete)
-
-    print("评价数据爬取完成！")
+    print(f"评价数据爬取完成！数据已存入 {config.output.db_path}")
 
 
 def run_all(
     config: Config, args: argparse.Namespace, failure_manager: FailureManager
 ) -> None:
-    """运行完整爬取流程。
-
-    Args:
-        config: 配置对象。
-        args: 命令行参数。
-        failure_manager: 失败管理器。
-    """
+    """运行完整爬取流程。"""
     checkpoint = Checkpoint(config=config) if args.resume else None
-    exporter = ExcelExporter(config=config)
-
+    
     # 第一步：爬取游戏信息
     print("=== 第一步：爬取游戏基础信息 ===")
     game_scraper = GameScraper(
         config=config, checkpoint=checkpoint, failure_manager=failure_manager
     )
-    games = game_scraper.run(max_pages=args.pages)
-    exporter.export_games(games)
-
-    app_ids = game_scraper.get_app_ids()
-    save_appids_to_file(app_ids)
+    game_scraper.run(max_pages=args.pages)
 
     # 第二步：爬取评价信息
     print("\n=== 第二步：爬取评价历史信息 ===")
+    # 获取刚刚爬取到的所有 AppID (从数据库)
+    app_ids = game_scraper.get_app_ids()
+    
     review_scraper = ReviewScraper(
         config=config, checkpoint=checkpoint, failure_manager=failure_manager
     )
+    review_scraper.scrape_from_list(app_ids)
 
-    def on_review_complete(app_id: int, reviews: list) -> None:
-        """评价完成回调。"""
-        if reviews:
-            exporter.export_reviews(app_id, reviews)
+    # 第三步：导出
+    print("\n=== 第三步：导出数据 ===")
+    run_export(config, argparse.Namespace(output="data/steam_data.xlsx"))
 
-    review_scraper.scrape_from_list(app_ids, on_complete=on_review_complete)
+    print(f"\n全部完成！数据已导出至 data/steam_data.xlsx")
 
-    print(f"\n完成！共爬取 {len(games)} 款游戏的信息和评价数据。")
+
+def run_export(config: Config, args: argparse.Namespace) -> None:
+    """导出数据。"""
+    print(f"正在导出数据到 {args.output}...")
+    db = DatabaseManager(config.output.db_path)
+    try:
+        db.export_to_excel(args.output)
+        print("导出成功！")
+    except Exception as e:
+        print(f"导出失败: {e}")
+    finally:
+        db.close()
 
 
 def run_retry(
     config: Config, args: argparse.Namespace, failure_manager: FailureManager
 ) -> None:
-    """运行重试逻辑。
-
-    Args:
-        config: 配置对象。
-        args: 命令行参数。
-        failure_manager: 失败管理器。
-    """
+    """运行重试逻辑。"""
     print("开始重试失败项目...")
 
     failures = failure_manager.get_failures()
@@ -333,7 +346,6 @@ def run_retry(
         print("没有找到失败记录。")
         return
 
-    exporter = ExcelExporter(config=config)
     game_scraper = GameScraper(config=config, failure_manager=failure_manager)
     review_scraper = ReviewScraper(config=config, failure_manager=failure_manager)
 
@@ -348,40 +360,30 @@ def run_retry(
         if args.type != "all" and item_type != args.type:
             continue
 
-        print(f"正在重试: [{item_type}] ID={item_id} (上次失败原因: {failure['reason']})")
+        print(f"正在重试: [{item_type}] ID={item_id}")
         retry_count += 1
 
         try:
             if item_type == "game":
-                # 重试爬取游戏信息
-                game_info = game_scraper.get_game_details(item_id)
-                if game_info:
-                    print(f"重试成功: {game_info.name}")
-                    # 这里我们需要以追加或合并的方式保存，但简单起见，我们输出单个文件或依赖后续处理
-                    # 为了简化，我们暂时只打印信息并移除失败记录
-                    # 理想情况下应该追加到现有 Excel，但 pandas 追加比较麻烦
-                    # 我们生成一个新的补丁文件
-                    exporter.export_games(
-                        [game_info], filename=f"steam_games_retry_{item_id}.xlsx"
-                    )
+                info = game_scraper.process_game(item_id)
+                if info:
+                    print(f"重试成功: {info.name}")
                     failure_manager.remove_failure(item_type, item_id)
                     success_count += 1
                 else:
                     print("重试失败: 仍无法获取数据")
 
             elif item_type == "review":
-                # 重试爬取评价
                 reviews = review_scraper.scrape_reviews(item_id)
                 if reviews:
                     print(f"重试成功: 获取到 {len(reviews)} 条评价")
-                    exporter.export_reviews(item_id, reviews)
                     failure_manager.remove_failure(item_type, item_id)
                     success_count += 1
                 else:
                     print("重试失败: 仍无评价数据")
 
         except Exception as e:
-            print(f"重试过程中发生异常: {e}")
+            print(f"重试异常: {e}")
 
     print(f"\n重试结束。共尝试 {retry_count} 个项目，成功恢复 {success_count} 个。")
 

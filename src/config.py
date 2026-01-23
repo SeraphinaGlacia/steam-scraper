@@ -50,6 +50,7 @@ class ScraperConfig:
     language: str = "english"
     currency: str = "us"
     category: str = "998"
+    max_workers: int = 10
 
 
 @dataclass
@@ -64,6 +65,7 @@ class OutputConfig:
     data_dir: str = "./data"
     checkpoint_file: str = ".checkpoint.json"
     failure_log_file: str = "failures.json"
+    db_path: str = "./data/steam_data.db"
 
 
 @dataclass
