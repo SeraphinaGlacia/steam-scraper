@@ -23,7 +23,9 @@
 
 - 🎮 **爬取 Steam 商店游戏基础信息**（名称、价格、开发商、类型等）
 - 📊 **爬取游戏评价历史数据**（好评/差评数量按日期统计）
-- 💾 **导出为 .xlsx 文件**，便于后续分析
+- ⚡️ **高并发采集**，速度提升 10+ 倍
+- 🗄️ **SQLite 数据存储**，高效、稳定、无碎片
+- 💾 **一键导出 Excel**，包含游戏信息和评价数据
 - ⏸️ **支持断点续爬**，意外中断也不怕
 - 🔄 **支持失败自动记录与重试**，保证数据完整性
 - ⚙️ **可配置的请求参数**，灵活适应不同网络环境
@@ -101,15 +103,35 @@ python main.py retry --type game
 python main.py retry --type review
 ```
 
-### 7. 📂 输出文件
+### 7. 🗑️ 重置项目
+
+> [!CAUTION]
+> 警告：此操作不可恢复!
+
+如果需要清空所有已抓取的数据（数据库、Excel）和缓存文件，重新开始：
+
+```bash
+python main.py reset
+```
+
+程序会要求两次确认以防止误操作。
+
+### 8. 📤 导出数据
+
+将数据库中的数据导出到 Excel 文件（包含两个 Sheet）：
+
+```bash
+python main.py export
+```
+
+### 9. 📂 输出文件
 
 所有数据文件保存在 `data/` 目录：
 
 | 文件 | 说明 |
 |------|------|
-| `steam_games_{当前时间戳}.xlsx` | 游戏基础信息 |
-| `steam_appids.txt` | 游戏 ID 列表 |
-| `steam_recommendations_data/` | 每个游戏的评价历史 |
+| `data/steam_data.db` | SQLite 数据库文件（核心数据） |
+| `data/steam_data.xlsx` | 导出的 Excel 数据表（包含 Games 和 Reviews） |
 
 ## 🏗️ 项目结构
 
@@ -121,8 +143,7 @@ simple_steam_scraper/
 │   ├── scrapers/                 # 爬虫模块
 │   │   ├── game_scraper.py       # 游戏信息爬虫
 │   │   └── review_scraper.py     # 评价历史爬虫
-│   ├── exporters/                # 导出模块
-│   │   └── excel.py              # Excel 导出
+│   ├── database.py               # 数据库管理
 │   └── utils/                    # 工具模块
 │       ├── http_client.py        # HTTP 客户端
 │       ├── checkpoint.py         # 断点续爬
@@ -143,6 +164,7 @@ scraper:
   language: english    # Steam 商店语言
   currency: us         # 货币代码
   category: "998"      # 分类 ID（998 为游戏）
+  max_workers: 10      # 并发线程数（默认为 10，过高可能导致 IP 封禁）
 
 http:
   timeout: 30          # 请求超时（秒）
@@ -152,26 +174,22 @@ http:
 
 output:
   data_dir: ./data     # 数据输出目录
+  checkpoint_file: .checkpoint.json  # 断点文件
 ```
 
 ## 🧩 附录：运行机制
 
-本程序通过模拟用户浏览与数据接口查询的方式，实现对 Steam 游戏数据的自动化采集与整合。核心流程与文件交互如下：
+1.  **并发采集与入库**
+    - 程序使用多线程技术（`ThreadPoolExecutor`）并发访问 Steam 搜索页面和 API 接口。
+    - **游戏信息**：采集到的游戏基础信息（id, name, price 等）实时存入 SQLite 数据库 `games` 表中。
+    - **评价历史**：针对每个游戏，并发采集其评价历史数据，并存入数据库 `reviews` 表中。
+    - **断点续传**：利用数据库的主键约束和 `checkpoint` 机制，智能跳过已采集的项目。
 
-1.  **遍历并生成 App ID 清单**
-    - 程序首先访问 Steam 搜索页面，遍历指定分类下的游戏列表，解析 HTML 结构提取基础元数据（App ID）。
-    - **输出文件**：提取到的 ID 会被实时写入 `data/steam_appids.txt`，作为后续步骤的索引清单。
+2.  **数据导出**
+    - 采集完成后，使用 `export` 命令从数据库中读取所有数据。
+    - **输出文件**：生成一个包含 `Games` 和 `Reviews` 两个 Sheet 的 Excel 文件 (`data/steam_data.xlsx`)，便于后续分析。
 
-2.  **进一步获取游戏详情信息**
-    - 程序读取上一步生成的清单（或直接利用内存中的数据），调用 Steam Store API 接口批量获取游戏详细信息（id, name, release_date, price, developers 等）。
-    - **输出文件**：所有基础信息会被结构化并保存为 `data/steam_games_{当前时间戳}.xlsx`，这是游戏基础信息数据总表。
 
-3.  **获取游戏评价历史**
-    - 针对清单中的每一个 App ID，程序进一步请求 Steam 评价直方图接口，获取自发布以来的评价趋势数据。
-    - **输出文件**：每个游戏的评价历史数据会被保存至 `data/steam_recommendations_data/` 目录下，文件夹内会包含多个 .xlsx 文件，命名格式为 `steam_recommendations_{AppID}.xlsx`，每个文件记录了对应游戏在不同时间跨度的好评/差评数据。
-
-4.  **完成**
-    - 最终，程序确保所有采集到的信息（基础详情数据 + 评价历史数据）都被完整保存，便于后续分析工具直接读取。
 
 ---
 

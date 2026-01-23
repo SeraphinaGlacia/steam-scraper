@@ -26,12 +26,14 @@
 
 ## ✨ Features
 
-- 🎮 **Scrape Game Basic Info**: Name, price, developer, genre, etc.
-- 📊 **Scrape Review History**: Positive/Negative review counts categorized by date.
-- 💾 **Export to Excel**: Data saved as .xlsx files.
-- ⏸️ **Resumable**: Supports stopping and resuming from where you left off.
-- 🔄 **Auto-Retry**: Automatically records failures and supports retrying.
-- ⚙️ **Configurable**: Adjustable request parameters.
+- 🎮 **Scrape Steam Store Game Info** (Name, Price, Developer, Genre, etc.)
+- 📊 **Scrape Review History** (Positive/Negative reviews by date)
+- ⚡️ **High Concurrency**, 10x faster speed
+- 🗄️ **SQLite Storage**, efficient and stable
+- 💾 **Export to Excel**, one-click export for all data
+- ⏸️ **Resume Capability**, continue from where you left off
+- 🔄 **Auto Retry**, handles failures automatically
+- ⚙️ **Configurable**, adapt to different network environments
 
 ## 🚀 Quick Start
 
@@ -106,15 +108,37 @@ python main.py retry --type game
 python main.py retry --type review
 ```
 
-### 7. 📂 Output Files
+### 7. 🗑️ Reset Project
+
+> [!CAUTION]
+> IRREVERSIBLE ACTION!
+
+To clear ALL scraped data (Database, Excel) and cache files to start over:
+
+```bash
+python main.py reset
+```
+
+The program will ask for double confirmation to prevent accidental data loss.
+
+### 8. 📤 Export Data
+
+Export data from database to Excel file (includes two sheets):
+
+```bash
+python main.py export
+```
+
+
+
+### 9. 📂 Output Files
 
 All data files are saved in the `data/` directory:
 
 | File | Description |
 |------|-------------|
-| `steam_games_{timestamp}.xlsx` | Game basic info |
-| `steam_appids.txt` | List of Game IDs |
-| `steam_recommendations_data/` | Review history for each game |
+| `data/steam_data.db` | SQLite database file (Core Data) |
+| `data/steam_data.xlsx` | Exported Excel file (Contains Games & Reviews) |
 
 ## 🏗️ Project Structure
 
@@ -126,8 +150,7 @@ simple_steam_scraper/
 │   ├── scrapers/                 # Scraper Modules
 │   │   ├── game_scraper.py       # Game Info Scraper
 │   │   └── review_scraper.py     # Review History Scraper
-│   ├── exporters/                # Export Modules
-│   │   └── excel.py              # Excel Export
+│   ├── database.py               # Database Management
 │   └── utils/                    # Utility Modules
 │       ├── http_client.py        # HTTP Client
 │       ├── checkpoint.py         # Checkpoint Management
@@ -148,6 +171,7 @@ scraper:
   language: english    # Steam Store Language
   currency: us         # Currency Code
   category: "998"      # Category ID (998 is for Games)
+  max_workers: 10      # Concurrency Threads (Default 10)
 
 http:
   timeout: 30          # Request Timeout (seconds)
@@ -156,27 +180,25 @@ http:
   max_delay: 3.0       # Max Request Delay (seconds)
 
 output:
-  data_dir: ./data     # Data Output Directory
+  data_dir: ./data        # Data Output Directory
+  checkpoint_file: .checkpoint.json  # Breakpoint File
 ```
 
 ## 🧩 Appendix: How It Works
 
 This program automates the collection and integration of Steam game data by simulating user browsing and querying data interfaces. The core process and file interactions are as follows:
 
-1.  **Traverse and Generate App ID List**
-    - The program first visits the Steam search page, traverses the game list under the specified category, and parses the HTML structure to extract basic metadata (App ID).
-    - **Output File**: Extracted IDs are written in real-time to `data/steam_appids.txt`, serving as an index list for subsequent steps.
+1.  **Concurrent Scraping & Storage**
+    - The program uses multi-threading (`ThreadPoolExecutor`) to concurrently access Steam search pages and APIs.
+    - **Game Info**: Scraped basic game info (id, name, price, etc.) is saved in real-time to the SQLite database `games` table.
+    - **Review History**: Review history data for each game is scraped concurrently and saved to the `reviews` table.
+    - **Resume Capability**: intelligently skips collected items using database primary keys and `checkpoint` mechanism.
 
-2.  **Fetch Game Details**
-    - The program reads the list generated in the previous step (or uses data directly from memory) and calls the Steam Store API interface to batch fetch detailed game information (id, name, release_date, price, developers, etc.).
-    - **Output File**: All basic information is structured and saved as `data/steam_games_{timestamp}.xlsx`, which is the master table for basic game data.
+2.  **Data Export**
+    - After scraping, use the `export` command to read all data from the database.
+    - **Output File**: Generates an Excel file (`data/steam_data.xlsx`) containing `Games` and `Reviews` sheets for easy analysis.
 
-3.  **Fetch Game Review History**
-    - For each App ID in the list, the program further requests the Steam Review Histogram API to obtain review trend data since release.
-    - **Output File**: Review history data for each game is saved in the `data/steam_recommendations_data/` directory. The folder contains multiple `.xlsx` files named `steam_recommendations_{AppID}.xlsx`, each recording the positive/negative review data for the corresponding game over different time spans.
 
-4.  **Completion**
-    - Finally, the program ensures that all collected information (basic details + review history) is completely saved, facilitating direct reading by subsequent analysis tools.
 
 ---
 
