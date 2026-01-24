@@ -544,6 +544,7 @@ def run_retry(
                 "id": app_id,
                 "reason": "从断点记录恢复（无详细原因）",
             })
+            existing_ids.add(("review", app_id))
 
     if not failures:
         ui.print_success("没有找到失败记录，Perfect!")
@@ -591,11 +592,11 @@ def run_retry(
             
             try:
                 if item_type == "game":
-                    info = game_scraper.process_game(item_id)
+                    info = game_scraper.process_game(item_id, force=True)
                     if info:
                         is_success = True
                 elif item_type == "review":
-                    reviews = review_scraper.scrape_reviews(item_id)
+                    reviews = review_scraper.scrape_reviews(item_id, force=True)
                     if reviews:
                         is_success = True
             except Exception:

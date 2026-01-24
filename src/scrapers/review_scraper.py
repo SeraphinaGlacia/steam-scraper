@@ -58,11 +58,12 @@ class ReviewScraper:
         self.ui = ui_manager or UIManager()
         self.stop_event = stop_event
 
-    def scrape_reviews(self, app_id: int) -> list[ReviewSnapshot]:
+    def scrape_reviews(self, app_id: int, force: bool = False) -> list[ReviewSnapshot]:
         """爬取指定游戏的评价历史数据并保存。
 
         Args:
             app_id: Steam 游戏 ID。
+            force: 强制模式，跳过失败标记检查（用于 retry 场景）。
 
         Returns:
             list[ReviewSnapshot]: 评价快照列表。
@@ -70,7 +71,8 @@ class ReviewScraper:
         # 检查断点（使用 review 专用状态）
         if self.checkpoint and self.checkpoint.is_appid_completed(app_id, "review"):
             return []
-        if self.checkpoint and self.checkpoint.is_appid_failed(app_id, "review"):
+        # force=True 时跳过失败检查，用于 retry 场景
+        if self.checkpoint and self.checkpoint.is_appid_failed(app_id, "review") and not force:
             return []
 
         url = (

@@ -150,7 +150,7 @@ class GameScraper:
 
         return app_ids
 
-    def process_game(self, app_id: int) -> Optional[GameInfo]:
+    def process_game(self, app_id: int, force: bool = False) -> Optional[GameInfo]:
         """处理单个游戏：获取详情并保存。
 
         此方法会先检查断点状态，跳过已完成或已失败的 AppID。
@@ -160,11 +160,12 @@ class GameScraper:
 
         Args:
             app_id: Steam 游戏 ID。
+            force: 强制模式，跳过失败标记检查（用于 retry 场景）。
 
         Returns:
             Optional[GameInfo]: 成功时返回游戏详情对象，以下情况返回 None：
                 - AppID 已完成爬取
-                - AppID 已标记为失败
+                - AppID 已标记为失败（非强制模式）
                 - 获取详情失败
         """
         # 1. 检查是否已在断点中完成
@@ -172,7 +173,8 @@ class GameScraper:
             return None
 
         # 2. 检查是否已标记为失败（避免重复尝试已知不可爬取的 ID）
-        if self.checkpoint and self.checkpoint.is_appid_failed(app_id):
+        # force=True 时跳过此检查，用于 retry 场景
+        if self.checkpoint and self.checkpoint.is_appid_failed(app_id) and not force:
             return None
 
         # 3. 尝试获取游戏详情
