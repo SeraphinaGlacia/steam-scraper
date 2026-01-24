@@ -41,10 +41,6 @@ data/*.db
 data/*.json
 !data/.gitkeep
 
-# Checkpoint files
-.checkpoint.json
-data/.checkpoint.json
-
 # OS
 .DS_Store
 Thumbs.db
@@ -54,4 +50,6 @@ Thumbs.db
 
 # Others
 scripts/
-requirements/
+GEMINI.md
+CLAUDE.md
+requirements/   
