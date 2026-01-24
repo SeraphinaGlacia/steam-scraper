@@ -175,8 +175,8 @@ After running, the `data/` directory will contain:
 | :--- | :--- |
 | `steam_data.db` | **Core Database** (SQLite). Contains `games` and `reviews` tables, suitable for direct query by developers. |
 | `steam_data.xlsx` | **Final Report**. Contains two Sheets, allowing data analysis without writing code. |
-| `failures.json` | **Failure Log**. Records which IDs failed to scrape and why (relevant entries will be deleted if `retry` is successful). |
-| `.checkpoint.json` | **Progress Save**. Used to support resume capability (will be automatically deleted after scraping is complete). |
+| `failures.json` | **Failure Log**. Records failed IDs, reasons, timestamps, and other details for troubleshooting. Entries are removed after successful `retry`. |
+| `.checkpoint.json` | **Progress Save**. Records completed/failed ID lists for `--resume` capability. Contains independent states for games and reviews. |
 
 ---
 

@@ -173,8 +173,8 @@ output:
 | :--- | :--- |
 | `steam_data.db` | **核心数据库** (SQLite)。包含 `games` 和 `reviews` 两张表，适合开发者直接查询。 |
 | `steam_data.xlsx` | **最终报表**。包含两个 Sheet，无需写代码即可分析数据。 |
-| `failures.json` | **失败日志**。记录了哪些 ID 抓取失败及其原因（运行 `retry` 命令后若成功则会删除相关条目。） |
-| `.checkpoint.json` | **进度存档**。用于支持断点续传（抓取完成后会自动删除）。 |
+| `failures.json` | **失败日志**。记录失败的 ID、原因、时间戳等详细信息，便于排查问题。`retry` 成功后会删除对应条目。 |
+| `.checkpoint.json` | **进度存档**。记录已完成/失败的 ID 列表，用于 `--resume` 断点续传。包含 games 和 reviews 的独立状态。 |
 
 ---
 
