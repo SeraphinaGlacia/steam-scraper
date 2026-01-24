@@ -321,6 +321,33 @@ def run_clean(failure_manager: FailureManager | None = None, ui: Optional[UIMana
         ui.print_info("没有需要清理的文件。")
 
 
+def _get_game_failures(
+    failure_manager: FailureManager, checkpoint: Checkpoint
+) -> list[dict]:
+    """获取所有 games 类型的失败记录（合并两个来源）。
+
+    Args:
+        failure_manager: 失败管理器。
+        checkpoint: 断点管理器。
+
+    Returns:
+        list[dict]: 失败记录列表。
+    """
+    failures = failure_manager.get_failures("game")
+    existing_ids = {f["id"] for f in failures}
+
+    for app_id in checkpoint.get_failed_appids("game"):
+        if app_id not in existing_ids:
+            failures.append({
+                "type": "game",
+                "id": app_id,
+                "reason": "从断点记录恢复（无详细原因）",
+            })
+            existing_ids.add(app_id)
+
+    return failures
+
+
 def run_games_scraper(
     config: Config,
     args: argparse.Namespace,
@@ -354,6 +381,19 @@ def run_reviews_scraper(
 ) -> None:
     """运行评价历史爬虫。"""
     checkpoint = Checkpoint(config=config)
+    
+    # 检查是否存在 games 失败记录
+    game_failures = _get_game_failures(failure_manager, checkpoint)
+    if game_failures:
+        ui.print_warning(
+            f"检测到 {len(game_failures)} 个游戏爬取失败记录。\n"
+            "这可能导致 reviews 爬取时缺少对应的游戏表数据。\n"
+            "建议先运行 [cyan]python main.py retry --type game[/cyan] 处理失败项目。"
+        )
+        if not ui.confirm("是否忽略警告，继续爬取 reviews？", default=False):
+            ui.print("操作已取消。请先处理 games 失败记录。")
+            return
+    
     if not args.resume:
         checkpoint.clear_task("review")  # 只清除 reviews 状态，不影响 games
 
@@ -405,6 +445,17 @@ def run_all(
 
     if stop_event.is_set():
         return
+
+    # 检查 games 是否有失败记录
+    game_failures = _get_game_failures(failure_manager, checkpoint)
+    if game_failures:
+        ui.print_warning(
+            f"\n游戏爬取阶段有 {len(game_failures)} 个失败项目。\n"
+            "继续爬取 reviews 可能导致数据不完整。"
+        )
+        if not ui.confirm("是否继续爬取 reviews？（建议先处理失败项目）", default=True):
+            ui.print("已停止。请使用 [cyan]python main.py retry --type game[/cyan] 处理失败项目后重试。")
+            return
 
     ui.print("\n")
     ui.print_panel("Step 2/3: 爬取评价历史信息", style="blue")
@@ -517,6 +568,10 @@ def run_retry(
     game_scraper = GameScraper(config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui)
     review_scraper = ReviewScraper(config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui)
 
+    # 按类型优先级排序：先处理 games，再处理 reviews
+    # 这确保了依赖关系正确：reviews 的爬取需要对应的 game 数据存在
+    failures.sort(key=lambda f: 0 if f["type"] == "game" else 1)
+    
     retry_count = 0
     success_count = 0
 
