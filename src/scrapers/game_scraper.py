@@ -153,28 +153,42 @@ class GameScraper:
     def process_game(self, app_id: int) -> Optional[GameInfo]:
         """处理单个游戏：获取详情并保存。
 
+        此方法会先检查断点状态，跳过已完成或已失败的 AppID。
+        无论爬取成功还是失败，都会更新断点状态，确保：
+        - 成功的 AppID 不会重复爬取
+        - 失败的 AppID 被标记，避免无限重试
+
         Args:
-            app_id: 游戏 ID。
+            app_id: Steam 游戏 ID。
 
         Returns:
-            Optional[GameInfo]: 游戏详情。
+            Optional[GameInfo]: 成功时返回游戏详情对象，以下情况返回 None：
+                - AppID 已完成爬取
+                - AppID 已标记为失败
+                - 获取详情失败
         """
-        # 检查是否已在断点中完成 or 数据库中已存在
+        # 1. 检查是否已在断点中完成
         if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
-            return None # Skip
-        
-        # 可选：如果数据库已有且不需要更新，也可以跳过
-        # if self.db.is_game_exists(app_id): ...
+            return None
 
+        # 2. 检查是否已标记为失败（避免重复尝试已知不可爬取的 ID）
+        if self.checkpoint and self.checkpoint.is_appid_failed(app_id):
+            return None
+
+        # 3. 尝试获取游戏详情
         details = self.get_game_details(app_id)
+
         if details:
+            # 成功：保存到数据库，标记为完成
             self.db.save_game(details)
-            # self.ui.print_success(f"已保存: {details.name} ({app_id})") # 过于频繁，交由进度条显示
-            
-            
             if self.checkpoint:
                 self.checkpoint.mark_appid_completed(app_id)
-            
+        else:
+            # 失败：标记为失败，避免后续死循环重试
+            # 这些 ID 可通过 `python main.py retry` 命令专门处理
+            if self.checkpoint:
+                self.checkpoint.mark_appid_failed(app_id)
+
         return details
 
     def run(
@@ -236,6 +250,9 @@ class GameScraper:
                             all_app_ids.append(app_id)
                         except Exception as e:
                             self.ui.print_error(f"处理游戏 {app_id} 异常: {e}")
+                            # 线程池层面的异常也要标记为失败，避免漏记
+                            if self.checkpoint:
+                                self.checkpoint.mark_appid_failed(app_id)
                         finally:
                             progress.update(game_task, advance=1)
 

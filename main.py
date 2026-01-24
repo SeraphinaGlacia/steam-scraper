@@ -32,7 +32,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Steam 游戏数据爬虫",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog="""\
 示例:
   # 基础用法
   python main.py games              # 爬取所有游戏基础信息
@@ -48,6 +48,11 @@ def main() -> None:
   python main.py clean              # 清理临时文件和缓存
   python main.py reset              # 重置项目（删除所有数据，慎用！）
   python main.py retry              # 重试所有失败的任务
+
+断点恢复机制:
+  不带 --resume: 清除断点，从头开始爬取
+  带   --resume: 保留断点，跳过已完成/已失败的项目继续爬取
+  失败的项目会被记录，可通过 retry 命令专门处理
 
 输出:
   data/steam_data.db    (SQLite 数据库，核心存储)
@@ -326,7 +331,7 @@ def run_games_scraper(
     """运行游戏信息爬虫。"""
     checkpoint = Checkpoint(config=config)
     if not args.resume:
-        checkpoint.clear()
+        checkpoint.clear_task("game")  # 只清除 games 状态，不影响 reviews
 
     scraper = GameScraper(
         config=config,
@@ -350,7 +355,7 @@ def run_reviews_scraper(
     """运行评价历史爬虫。"""
     checkpoint = Checkpoint(config=config)
     if not args.resume:
-        checkpoint.clear()
+        checkpoint.clear_task("review")  # 只清除 reviews 状态，不影响 games
 
     scraper = ReviewScraper(
         config=config,
@@ -449,10 +454,46 @@ def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> None:
 def run_retry(
     config: Config, args: argparse.Namespace, failure_manager: FailureManager, ui: UIManager
 ) -> None:
-    """运行重试逻辑。"""
+    """运行重试逻辑。
+
+    此函数会合并两个来源的失败记录：
+    1. FailureManager (failures.json) - 详细的失败日志
+    2. Checkpoint (failed_appids) - 断点记录中的失败 ID
+
+    Args:
+        config: 配置对象。
+        args: 命令行参数。
+        failure_manager: 失败管理器。
+        ui: UI 管理器。
+    """
     ui.print_info("开始检查失败项目...")
 
+    # 1. 从 FailureManager 获取失败记录
     failures = failure_manager.get_failures()
+
+    # 2. 从 Checkpoint 获取 failed_appids（合并到 failures 列表）
+    checkpoint = Checkpoint(config=config)
+    
+    # 2.1 Games 失败记录
+    existing_ids = {(f["type"], f["id"]) for f in failures}
+    for app_id in checkpoint.get_failed_appids("game"):
+        if ("game", app_id) not in existing_ids:
+            failures.append({
+                "type": "game",
+                "id": app_id,
+                "reason": "从断点记录恢复（无详细原因）",
+            })
+            existing_ids.add(("game", app_id))
+    
+    # 2.2 Reviews 失败记录
+    for app_id in checkpoint.get_failed_appids("review"):
+        if ("review", app_id) not in existing_ids:
+            failures.append({
+                "type": "review",
+                "id": app_id,
+                "reason": "从断点记录恢复（无详细原因）",
+            })
+
     if not failures:
         ui.print_success("没有找到失败记录，Perfect!")
         return
@@ -472,8 +513,9 @@ def run_retry(
          ui.print("操作已取消。")
          return
 
-    game_scraper = GameScraper(config=config, failure_manager=failure_manager, ui_manager=ui)
-    review_scraper = ReviewScraper(config=config, failure_manager=failure_manager, ui_manager=ui)
+    # 使用同一个 checkpoint 实例，确保 retry 成功后状态被正确更新
+    game_scraper = GameScraper(config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui)
+    review_scraper = ReviewScraper(config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui)
 
     retry_count = 0
     success_count = 0

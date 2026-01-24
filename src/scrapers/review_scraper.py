@@ -67,8 +67,10 @@ class ReviewScraper:
         Returns:
             list[ReviewSnapshot]: 评价快照列表。
         """
-        # 检查断点
-        if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
+        # 检查断点（使用 review 专用状态）
+        if self.checkpoint and self.checkpoint.is_appid_completed(app_id, "review"):
+            return []
+        if self.checkpoint and self.checkpoint.is_appid_failed(app_id, "review"):
             return []
 
         url = (
@@ -103,7 +105,7 @@ class ReviewScraper:
             if reviews:
                 self.db.save_reviews(app_id, reviews)
                 if self.checkpoint:
-                    self.checkpoint.mark_appid_completed(app_id)
+                    self.checkpoint.mark_appid_completed(app_id, "review")
                 # print(f"已保存游戏 {app_id} 的 {len(reviews)} 条评价记录")
 
         except Exception as e:
@@ -112,7 +114,7 @@ class ReviewScraper:
             if self.failure_manager:
                 self.failure_manager.log_failure("review", app_id, str(e))
             if self.checkpoint:
-                self.checkpoint.mark_appid_failed(app_id)
+                self.checkpoint.mark_appid_failed(app_id, "review")
 
         return reviews
 
