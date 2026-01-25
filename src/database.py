@@ -2,6 +2,7 @@
 数据库管理模块。
 
 使用 SQLite 存储游戏信息和评价数据，并提供统一的 Excel 导出功能。
+选择 SQLite 是因为它无需额外服务器，数据单文件存储，便于复制和分享。
 """
 
 from __future__ import annotations
@@ -35,7 +36,12 @@ class DatabaseManager:
         self.init_db()
 
     def init_db(self) -> None:
-        """初始化数据库表结构。"""
+        """初始化数据库表结构。
+        
+        创建 games 和 reviews 两张表：
+        - games: 存储游戏基础信息，以 app_id 为主键
+        - reviews: 存储评价历史数据，使用 (app_id, date) 联合唯一约束
+        """
         cursor = self.conn.cursor()
 
         # 创建游戏表
@@ -46,9 +52,9 @@ class DatabaseManager:
                 name TEXT NOT NULL,
                 release_date TEXT,
                 price TEXT,
-                developers TEXT,
-                publishers TEXT,
-                genres TEXT,
+                developers TEXT,  -- JSON 数组字符串，因为开发商可能有多个
+                publishers TEXT,  -- JSON 数组字符串，因为发行商可能有多个
+                genres TEXT,      -- JSON 数组字符串，因为游戏类型可能有多个
                 description TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -65,6 +71,8 @@ class DatabaseManager:
                 recommendations_up INTEGER,
                 recommendations_down INTEGER,
                 FOREIGN KEY (app_id) REFERENCES games (app_id),
+                -- 联合唯一约束防止重复插入同一天的评价数据
+                -- 并且允许通过 INSERT OR REPLACE 更新已存在的记录
                 UNIQUE(app_id, date)
             )
             """
@@ -81,6 +89,8 @@ class DatabaseManager:
         cursor = self.conn.cursor()
         
         # 将列表转换为 JSON 字符串存储
+        # 使用 JSON 而非逗号分隔，因为开发商/发行商名称本身可能包含逗号
+        # ensure_ascii=False 保留中文字符的原始形式，提高可读性
         developers_json = json.dumps(game.developers, ensure_ascii=False)
         publishers_json = json.dumps(game.publishers, ensure_ascii=False)
         genres_json = json.dumps(game.genres, ensure_ascii=False)
@@ -163,6 +173,8 @@ class DatabaseManager:
             games_df = pd.read_sql_query("SELECT * FROM games", self.conn)
             
             # 处理 JSON 字段还原为逗号分隔字符串，以便于阅读
+            # SQLite 中存储的是 JSON 数组（保留完整结构），
+            # 但 Excel 中用户更希望看到易读的 "关卡, 动作, RPG" 格式
             for col in ["developers", "publishers", "genres"]:
                 if col in games_df.columns:
                     games_df[col] = games_df[col].apply(

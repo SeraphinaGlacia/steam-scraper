@@ -2,6 +2,7 @@
 Steam 爬虫统一入口。
 
 提供命令行接口来运行爬虫，支持并发抓取和数据库存储。
+本模块是整个项目的 CLI 入口点，负责解析命令行参数并分发到对应的处理函数。
 """
 
 from __future__ import annotations
@@ -11,8 +12,10 @@ import shutil
 import signal
 import sys
 import threading
-import pyfiglet
 from pathlib import Path
+from typing import Optional
+
+import pyfiglet
 
 
 # 添加项目根目录到路径
@@ -182,9 +185,15 @@ def main() -> None:
     stop_event = threading.Event()
 
     def signal_handler(signum, frame):
-        """处理信号（如 Ctrl+C）。"""
+        """处理信号（如 Ctrl+C）。
+        
+        通过设置 stop_event 标志来优雅地停止所有正在运行的爬虫线程，
+        而不是直接强制终止进程，这样可以确保数据完整性和断点保存。
+        """
         print("\n")
         print("⚠️  接收到停止信号，正在停止... / Stopping...")
+        # 设置事件标志通知所有工作线程停止，而非强制 kill
+        # 这样爬虫可以完成当前任务并正确保存断点
         stop_event.set()
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -232,10 +241,13 @@ def run_reset(config: Config, failure_manager: FailureManager, ui: UIManager) ->
     ui.print("\n[bold yellow]开始重置...[/bold yellow]")
     
     # 1. 清理 data 目录
+    # 遍历删除所有生成的数据文件，但保留 .gitkeep 以维持目录结构
+    # 这样 git 仓库可以正确追踪空目录
     data_dir = Path(config.output.data_dir)
     if data_dir.exists():
         for item in data_dir.glob("*"):
-            if item.name == ".gitkeep": 
+            if item.name == ".gitkeep":
+                # .gitkeep 是占位文件，用于让 git 追踪空目录，不应删除
                 continue
             try:
                 if item.is_file():
@@ -520,9 +532,12 @@ def run_retry(
     ui.print_info("开始检查失败项目...")
 
     # 1. 从 FailureManager 获取失败记录
+    # FailureManager 存储带有详细错误原因的失败日志
     failures = failure_manager.get_failures()
 
     # 2. 从 Checkpoint 获取 failed_appids（合并到 failures 列表）
+    # Checkpoint 的 failed_appids 是另一个失败来源（可能没有详细原因）
+    # 需要合并两个来源以确保不遗漏任何失败项目
     checkpoint = Checkpoint(config=config)
     
     # 2.1 Games 失败记录
@@ -570,7 +585,8 @@ def run_retry(
     review_scraper = ReviewScraper(config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui)
 
     # 按类型优先级排序：先处理 games，再处理 reviews
-    # 这确保了依赖关系正确：reviews 的爬取需要对应的 game 数据存在
+    # 这个排序至关重要，因为 reviews 爬取依赖于 games 表中的数据存在
+    # 如果先重试 review 失败项，可能因为对应 game 不存在而再次失败
     failures.sort(key=lambda f: 0 if f["type"] == "game" else 1)
     
     retry_count = 0

@@ -2,6 +2,7 @@
 HTTP 客户端工具模块。
 
 封装 HTTP 请求，提供重试机制和速率限制。
+所有爬虫类均通过此客户端发起网络请求，统一处理超时、重试和延迟。
 """
 
 from __future__ import annotations
@@ -38,7 +39,9 @@ class HttpClient:
         self.session.headers.update({"User-Agent": self.config.http.user_agent})
         
         
-        # 仅针对此实例使用的 Session 禁用警告（虽然是全局设置，但副作用限制在类加载后）
+        # 禁用 SSL 警告
+        # Steam API 请求使用 verify=False 跳过证书验证（为了兑容某些网络环境）
+        # 因此需要禁用警告避免每次请求都输出 InsecureRequestWarning
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def get(
@@ -81,7 +84,9 @@ class HttpClient:
             except requests.RequestException as e:
                 last_exception = e
                 if attempt < self.config.http.max_retries:
-                    # 指数退避
+                    # 指数退避策略：等待时间 = 2^attempt + 随机抖动
+                    # 这样做可以防止所有客户端在同一时间重试（雷鸣群问题）
+                    # 并给服务器足够的恢复时间
                     wait_time = (2**attempt) + random.uniform(0, 1)
                     print(
                         f"请求失败，{wait_time:.1f} 秒后重试 ({attempt + 1}/{self.config.http.max_retries}): {e}"
