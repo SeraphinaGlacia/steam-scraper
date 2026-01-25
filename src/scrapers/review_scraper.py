@@ -2,6 +2,8 @@
 评价历史爬虫模块。
 
 从 Steam 获取游戏的评价统计历史数据，支持并发爬取和数据库存储。
+与游戏信息爬虫不同，评价数据来自 reviewhistogram API，
+返回的是每天的好评/差评数量统计。
 """
 
 from __future__ import annotations
@@ -91,7 +93,9 @@ class ReviewScraper:
                 positive = item["recommendations_up"]
                 negative = item["recommendations_down"]
 
-                # 转换时间戳为 UTC+8（北京时间）
+                # 将时间戳转换为 UTC+8（北京时间）
+                # Steam API 返回的是 UTC 时间戳，需要加 8 小时转换为中国时区
+                # 这样确保数据日期与用户习惯的本地时间一致
                 dt_utc = datetime.datetime.utcfromtimestamp(ts)
                 dt_local = dt_utc + datetime.timedelta(hours=8)
 
@@ -163,6 +167,8 @@ class ReviewScraper:
         with self.ui.create_progress() as progress:
             task = progress.add_task("[green]抓取评价...", total=len(app_ids))
 
+            # 使用线程池并发爬取，显著提升效率
+            # 因为每个请求主要是网络 IO 等待，线程池能充分利用这些等待时间
             with ThreadPoolExecutor(max_workers=self.config.scraper.max_workers) as executor:
                 futures = {}
                 for app_id in app_ids:

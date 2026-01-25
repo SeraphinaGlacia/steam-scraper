@@ -2,6 +2,8 @@
 失败记录管理模块。
 
 提供爬取失败记录的持久化、读取和清理功能。
+与 Checkpoint 中的 failed_appids 不同，此模块存储更详细的失败信息，
+包括失败原因、时间戳和上下文，便于问题诊断和分析。
 """
 
 from __future__ import annotations
@@ -79,9 +81,10 @@ class FailureManager:
         failures = self._load_failures()
 
         # 检查是否已存在相同的失败记录（避免重复）
+        # 如果同一个项目多次失败，只保留最新的一条，避免日志膨胀
         for failure in failures:
             if failure["type"] == item_type and failure["id"] == item_id:
-                # 更新原因和时间
+                # 更新已存在记录的原因和时间，保留最新的失败信息
                 failure["reason"] = reason
                 failure["timestamp"] = int(time.time())
                 if context:

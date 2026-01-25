@@ -84,7 +84,9 @@ class GameScraper:
         except Exception as e:
             self.ui.print_error(f"获取总页数失败: {e}")
 
-        return 5000  # 默认值
+        # 默认值 5000 是 Steam 商店游戏总量的保守估计
+        # 实际分页数会从 API 响应中获取，此值仅在解析失败时作为兑底
+        return 5000
 
     def get_game_details(self, app_id: int) -> Optional[GameInfo]:
         """获取单个游戏的详细信息。
@@ -141,6 +143,8 @@ class GameScraper:
             games = soup.find_all("a", {"class": "search_result_row"})
 
             for game in games:
+                # data-ds-appid 是 Steam 搜索结果页面中的自定义属性
+                # 它存储了游戏的 AppID，用于后续获取详细信息
                 app_id_str = game.get("data-ds-appid")
                 if app_id_str:
                     app_ids.append(int(app_id_str))
@@ -216,9 +220,12 @@ class GameScraper:
         all_app_ids = []
 
         with self.ui.create_progress() as progress:
-            # 1. 页数进度条
+            # 采用双进度条设计：
+            # 1. page_task: 显示页面扫描进度（快速）
+            # 2. game_task: 显示游戏详情抓取进度（较慢，因为需要请求 API）
+            # 这种设计让用户能同时看到宏观和微观进度
             page_task = progress.add_task("[cyan]扫描页面...", total=total_pages)
-            # 2. 游戏处理进度条 (动态增加)
+            # game_task 的 total 初始为 0，会在扫描过程中动态增加
             game_task = progress.add_task("[green]抓取详情...", total=0)
 
             with ThreadPoolExecutor(max_workers=self.config.scraper.max_workers) as executor:
@@ -239,10 +246,11 @@ class GameScraper:
                     if not app_ids:
                         continue
                     
-                    # 增加游戏任务总量
+                    # 动态更新游戏任务总量，因为每页返回的游戏数不固定
                     progress.update(game_task, total=progress.tasks[game_task].total + len(app_ids))
 
                     # 提交任务到线程池
+                    # 使用字典映射 future -> app_id，便于在回调时追溯失败的具体游戏
                     futures = {executor.submit(self.process_game, app_id): app_id for app_id in app_ids}
                     
                     for future in as_completed(futures):
