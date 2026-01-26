@@ -1,14 +1,14 @@
 """
 游戏信息爬虫模块。
 
-从 Steam 商店爬取游戏基础信息，支持并发爬取和数据库存储。
+从 Steam 商店爬取游戏基础信息，支持异步并发爬取和数据库存储。
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
 import threading
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from bs4 import BeautifulSoup
 
@@ -16,18 +16,19 @@ from src.config import Config, get_config
 from src.database import DatabaseManager
 from src.models import GameInfo
 from src.utils.checkpoint import Checkpoint
-from src.utils.http_client import HttpClient
+from src.utils.http_client import AsyncHttpClient
 from src.utils.ui import UIManager
 
 
 class GameScraper:
-    """Steam 游戏信息爬虫。
+    """Steam 游戏信息爬虫（异步版本）。
 
     从 Steam 商店搜索页面爬取游戏列表，并获取每个游戏的详细信息。
+    使用 asyncio 实现真正的非阻塞并发，显著提升爬取效率。
 
     Attributes:
         config: 配置对象。
-        client: HTTP 客户端。
+        client: 异步 HTTP 客户端。
         checkpoint: 断点管理器。
         db: 数据库管理器。
         ui: UI 管理器。
@@ -51,7 +52,7 @@ class GameScraper:
             stop_event: 可选的停止事件标志。
         """
         self.config = config or get_config()
-        self.client = HttpClient(self.config)
+        self.client = AsyncHttpClient(self.config)
         self.checkpoint = checkpoint
         self.failure_manager = failure_manager
         self.db = DatabaseManager(self.config.output.db_path)
@@ -65,7 +66,7 @@ class GameScraper:
             f"&cc={self.config.scraper.currency}"
         )
 
-    def get_total_pages(self) -> int:
+    async def get_total_pages(self) -> int:
         """获取搜索结果的总页数。
 
         Returns:
@@ -74,21 +75,26 @@ class GameScraper:
         params = {"category1": self.config.scraper.category, "page": "1"}
 
         try:
-            response = self.client.get(self.base_url, params=params, delay=False)
+            response = await self.client.get(self.base_url, params=params, delay=False)
             soup = BeautifulSoup(response.text, "html.parser")
 
             search_results = soup.find("div", {"class": "search_pagination_left"})
             if search_results:
-                total_results = int(search_results.text.strip().split(" ")[-2])
-                return (total_results // 25) + 1  # Steam 每页显示 25 个游戏
+                # 示例文本: "Showing 1 - 25 of 69792"
+                # 使用正则提取所有数字，假设最后一个数字是总记录数
+                import re
+                numbers = re.findall(r"\d+", search_results.text.strip().replace(",", ""))
+                if numbers:
+                    total_results = int(numbers[-1])
+                    return (total_results // 25) + 1  # Steam 每页显示 25 个游戏
         except Exception as e:
             self.ui.print_error(f"获取总页数失败: {e}")
 
         # 默认值 5000 是 Steam 商店游戏总量的保守估计
-        # 实际分页数会从 API 响应中获取，此值仅在解析失败时作为兑底
+        # 实际分页数会从 API 响应中获取，此值仅在解析失败时作为兜底
         return 5000
 
-    def get_game_details(self, app_id: int) -> Optional[GameInfo]:
+    async def get_game_details(self, app_id: int) -> Optional[GameInfo]:
         """获取单个游戏的详细信息。
 
         Args:
@@ -105,7 +111,7 @@ class GameScraper:
         )
 
         try:
-            data = self.client.get_json(url)
+            data = await self.client.get_json(url)
 
             if data.get(str(app_id), {}).get("success"):
                 game_data = data[str(app_id)]["data"]
@@ -119,7 +125,7 @@ class GameScraper:
 
         return None
 
-    def scrape_page_games(self, page: int) -> list[int]:
+    async def scrape_page_games(self, page: int) -> list[int]:
         """爬取指定页面的游戏 AppID 列表。
 
         Args:
@@ -137,7 +143,7 @@ class GameScraper:
         app_ids = []
 
         try:
-            response = self.client.get(self.base_url, params=params, delay=False)
+            response = await self.client.get(self.base_url, params=params, delay=False)
             soup = BeautifulSoup(response.text, "html.parser")
 
             games = soup.find_all("a", {"class": "search_result_row"})
@@ -154,7 +160,7 @@ class GameScraper:
 
         return app_ids
 
-    def process_game(self, app_id: int, force: bool = False) -> Optional[GameInfo]:
+    async def process_game(self, app_id: int, force: bool = False) -> Optional[GameInfo]:
         """处理单个游戏：获取详情并保存。
 
         此方法会先检查断点状态，跳过已完成或已失败的 AppID。
@@ -182,7 +188,7 @@ class GameScraper:
             return None
 
         # 3. 尝试获取游戏详情
-        details = self.get_game_details(app_id)
+        details = await self.get_game_details(app_id)
 
         if details:
             # 成功：保存到数据库，标记为完成
@@ -197,11 +203,14 @@ class GameScraper:
 
         return details
 
-    def run(
+    async def run(
         self,
         max_pages: Optional[int] = None,
     ) -> list[int]:
-        """运行爬虫（并发模式）。
+        """运行爬虫（异步并发模式）。
+
+        使用 asyncio.Semaphore 控制并发数，避免同时发起过多请求导致被限流。
+        相比 ThreadPoolExecutor，异步模式能更高效地利用系统资源。
 
         Args:
             max_pages: 可选的最大页数限制。
@@ -209,15 +218,34 @@ class GameScraper:
         Returns:
             list[int]: 所有处理过的 app_id。
         """
-        total_pages = self.get_total_pages()
+        total_pages = await self.get_total_pages()
         if max_pages:
             total_pages = min(total_pages, max_pages)
 
         print(
             f"开始爬取 {total_pages} 页，并发数: {self.config.scraper.max_workers}"
         )
+
+        all_app_ids: list[int] = []
         
-        all_app_ids = []
+        # 使用信号量限制并发数，避免同时发起过多请求
+        # 这是 asyncio 中控制并发度的标准方式
+        semaphore = asyncio.Semaphore(self.config.scraper.max_workers)
+
+        async def limited_process(app_id: int) -> tuple[int, Optional[GameInfo]]:
+            """带并发限制的游戏处理函数。
+            
+            使用信号量确保同时进行的请求数不超过 max_workers。
+            
+            Args:
+                app_id: Steam 游戏 ID。
+                
+            Returns:
+                tuple: (app_id, 游戏详情或 None)
+            """
+            async with semaphore:
+                result = await self.process_game(app_id)
+                return app_id, result
 
         with self.ui.create_progress() as progress:
             # 采用双进度条设计：
@@ -228,47 +256,53 @@ class GameScraper:
             # game_task 的 total 初始为 0，会在扫描过程中动态增加
             game_task = progress.add_task("[green]抓取详情...", total=0)
 
-            with ThreadPoolExecutor(max_workers=self.config.scraper.max_workers) as executor:
-                for page in range(1, total_pages + 1):
-                    # 检查停止信号
-                    if self.stop_event and self.stop_event.is_set():
-                        break
+            for page in range(1, total_pages + 1):
+                # 检查停止信号
+                if self.stop_event and self.stop_event.is_set():
+                    break
 
-                    if self.checkpoint and self.checkpoint.is_page_completed(page):
-                        # self.ui.print(f"跳过已完成的第 {page} 页")
-                        progress.update(page_task, advance=1)
-                        continue
-
-                    # self.ui.print(f"正在读取第 {page}/{total_pages} 页列表...")
-                    app_ids = self.scrape_page_games(page)
+                if self.checkpoint and self.checkpoint.is_page_completed(page):
                     progress.update(page_task, advance=1)
-                    
-                    if not app_ids:
-                        continue
-                    
-                    # 动态更新游戏任务总量，因为每页返回的游戏数不固定
-                    progress.update(game_task, total=progress.tasks[game_task].total + len(app_ids))
+                    continue
 
-                    # 提交任务到线程池
-                    # 使用字典映射 future -> app_id，便于在回调时追溯失败的具体游戏
-                    futures = {executor.submit(self.process_game, app_id): app_id for app_id in app_ids}
-                    
-                    for future in as_completed(futures):
-                        app_id = futures[future]
-                        try:
-                            future.result()
-                            all_app_ids.append(app_id)
-                        except Exception as e:
-                            self.ui.print_error(f"处理游戏 {app_id} 异常: {e}")
-                            # 线程池层面的异常也要标记为失败，避免漏记
-                            if self.checkpoint:
+                # 爬取当前页面的游戏列表
+                app_ids = await self.scrape_page_games(page)
+                progress.update(page_task, advance=1)
+
+                if not app_ids:
+                    continue
+
+                # 动态更新游戏任务总量，因为每页返回的游戏数不固定
+                progress.update(
+                    game_task, total=progress.tasks[game_task].total + len(app_ids)
+                )
+
+                # 创建并发任务
+                tasks = [limited_process(app_id) for app_id in app_ids]
+                
+                # 使用 asyncio.as_completed 实现实时进度更新
+                # 这会让进度条每抓完一个游戏就动一下，而不是等一页全部抓完才动
+                for future in asyncio.as_completed(tasks):
+                    try:
+                        result = await future
+                        app_id, game_info = result
+                        all_app_ids.append(app_id)
+                        
+                        if game_info is None and self.checkpoint:
+                            # 如果返回 None 且不是因为已完成，则标记为失败
+                            if not self.checkpoint.is_appid_completed(app_id):
                                 self.checkpoint.mark_appid_failed(app_id)
-                        finally:
-                            progress.update(game_task, advance=1)
+                    except Exception as e:
+                        self.ui.print_error(f"处理游戏异常: {e}")
+                    finally:
+                        progress.update(game_task, advance=1)
 
-                    if self.checkpoint:
-                        self.checkpoint.mark_page_completed(page)
+                if self.checkpoint:
+                    self.checkpoint.mark_page_completed(page)
 
+        # 关闭 HTTP 客户端释放资源
+        await self.client.close()
+        
         # 最终不再返回 GameInfo 对象列表，而是 AppID 列表，因为数据已入库
         return all_app_ids
 

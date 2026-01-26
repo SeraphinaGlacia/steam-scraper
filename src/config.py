@@ -28,8 +28,8 @@ class HttpConfig:
 
     timeout: int = 30
     max_retries: int = 3
-    min_delay: float = 1.0
-    max_delay: float = 3.0
+    min_delay: float = 0.5
+    max_delay: float = 1.5
     user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -50,7 +50,7 @@ class ScraperConfig:
     language: str = "english"
     currency: str = "us"
     category: str = "998"
-    max_workers: int = 10
+    max_workers: int = 20
 
 
 @dataclass

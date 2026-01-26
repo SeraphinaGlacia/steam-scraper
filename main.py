@@ -1,13 +1,14 @@
 """
 Steam 爬虫统一入口。
 
-提供命令行接口来运行爬虫，支持并发抓取和数据库存储。
+提供命令行接口来运行爬虫，支持异步并发抓取和数据库存储。
 本模块是整个项目的 CLI 入口点，负责解析命令行参数并分发到对应的处理函数。
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import shutil
 import signal
 import sys
@@ -16,7 +17,6 @@ from pathlib import Path
 from typing import Optional
 
 import pyfiglet
-
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
@@ -33,7 +33,7 @@ from src.utils.ui import UIManager
 def main() -> None:
     """主入口函数。"""
     parser = argparse.ArgumentParser(
-        description="Steam 游戏数据爬虫",
+        description="Steam 游戏数据爬虫 (AsyncIO 版)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 示例:
@@ -75,7 +75,7 @@ def main() -> None:
     games_parser = subparsers.add_parser(
         "games",
         help="爬取游戏基础信息",
-        description="从 Steam 商店爬取游戏基础信息（并发）",
+        description="从 Steam 商店爬取游戏基础信息（异步并发）",
     )
     games_parser.add_argument(
         "--pages",
@@ -94,7 +94,7 @@ def main() -> None:
     reviews_parser = subparsers.add_parser(
         "reviews",
         help="爬取评价历史信息",
-        description="根据已爬取的最新的游戏列表，并发爬取评价历史",
+        description="根据已爬取的最新的游戏列表，异步并发爬取评价历史",
     )
     reviews_parser.add_argument(
         "--input",
@@ -177,7 +177,7 @@ def main() -> None:
 
     # 显示 Banner
     ui.print_panel(
-        "[bold white]Simple Steam Scraper[/bold white]\n"
+        "[bold white]Simple Steam Scraper (AsyncIO)[/bold white]\n"
         "[dim]github.com/SeraphinaGlacia/simple-steam-scraper[/dim]",
         style="header",
     )
@@ -186,14 +186,13 @@ def main() -> None:
 
     def signal_handler(signum, frame):
         """处理信号（如 Ctrl+C）。
-        
-        通过设置 stop_event 标志来优雅地停止所有正在运行的爬虫线程，
+
+        通过设置 stop_event 标志来优雅地停止所有正在运行的爬虫线程/任务，
         而不是直接强制终止进程，这样可以确保数据完整性和断点保存。
         """
         print("\n")
         print("⚠️  接收到停止信号，正在停止... / Stopping...")
-        # 设置事件标志通知所有工作线程停止，而非强制 kill
-        # 这样爬虫可以完成当前任务并正确保存断点
+        # 设置事件标志通知所有工作线程/协程停止
         stop_event.set()
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -229,7 +228,7 @@ def run_reset(config: Config, failure_manager: FailureManager, ui: UIManager) ->
         title="重置项目 Reset Project",
         style="red",
     )
-    
+
     if not ui.confirm("[bold red]确认要重置吗？[/bold red]"):
         ui.print("操作已取消。")
         return
@@ -239,15 +238,12 @@ def run_reset(config: Config, failure_manager: FailureManager, ui: UIManager) ->
         return
 
     ui.print("\n[bold yellow]开始重置...[/bold yellow]")
-    
+
     # 1. 清理 data 目录
-    # 遍历删除所有生成的数据文件，但保留 .gitkeep 以维持目录结构
-    # 这样 git 仓库可以正确追踪空目录
     data_dir = Path(config.output.data_dir)
     if data_dir.exists():
         for item in data_dir.glob("*"):
             if item.name == ".gitkeep":
-                # .gitkeep 是占位文件，用于让 git 追踪空目录，不应删除
                 continue
             try:
                 if item.is_file():
@@ -273,7 +269,6 @@ def run_start(ui: UIManager) -> None:
         title = pyfiglet.figlet_format("Steam Scraper", font="slant")
         ui.print(title, style="bold cyan")
     except Exception:
-        # Fallback if font missing or error
         ui.print_panel("[bold cyan]Steam Scraper[/bold cyan]", style="cyan")
 
     # 2. Welcome Panel
@@ -289,15 +284,16 @@ def run_start(ui: UIManager) -> None:
     )
 
 
-def run_clean(failure_manager: FailureManager | None = None, ui: Optional[UIManager] = None) -> None:
+def run_clean(
+    failure_manager: FailureManager | None = None, ui: Optional[UIManager] = None
+) -> None:
     """清理缓存和临时文件。"""
     if ui is None:
         ui = UIManager()
-        
+
     project_root = Path(__file__).parent
     cleaned = 0
 
-    # ... (原有清理逻辑保持不变，但使用 ui.print) -> 这里为了简洁，直接全量替换函数体
     # 删除 __pycache__ 目录
     for pycache in project_root.rglob("__pycache__"):
         if pycache.is_dir():
@@ -336,15 +332,7 @@ def run_clean(failure_manager: FailureManager | None = None, ui: Optional[UIMana
 def _get_game_failures(
     failure_manager: FailureManager, checkpoint: Checkpoint
 ) -> list[dict]:
-    """获取所有 games 类型的失败记录（合并两个来源）。
-
-    Args:
-        failure_manager: 失败管理器。
-        checkpoint: 断点管理器。
-
-    Returns:
-        list[dict]: 失败记录列表。
-    """
+    """获取所有 games 类型的失败记录（合并两个来源）。"""
     failures = failure_manager.get_failures("game")
     existing_ids = {f["id"] for f in failures}
 
@@ -360,17 +348,17 @@ def _get_game_failures(
     return failures
 
 
-def run_games_scraper(
+async def run_games_scraper_async(
     config: Config,
     args: argparse.Namespace,
     failure_manager: FailureManager,
     ui: UIManager,
     stop_event: threading.Event,
 ) -> None:
-    """运行游戏信息爬虫。"""
+    """异步运行游戏信息爬虫逻辑。"""
     checkpoint = Checkpoint(config=config)
     if not args.resume:
-        checkpoint.clear_task("game")  # 只清除 games 状态，不影响 reviews
+        checkpoint.clear_task("game")  # 只清除 games 状态
 
     scraper = GameScraper(
         config=config,
@@ -379,21 +367,34 @@ def run_games_scraper(
         ui_manager=ui,
         stop_event=stop_event,
     )
-    scraper.run(max_pages=args.pages)
+    await scraper.run(max_pages=args.pages)
 
     ui.print_success(f"游戏信息爬取完成！数据已存入 [bold]{config.output.db_path}[/bold]")
 
 
-def run_reviews_scraper(
+def run_games_scraper(
     config: Config,
     args: argparse.Namespace,
     failure_manager: FailureManager,
     ui: UIManager,
     stop_event: threading.Event,
 ) -> None:
-    """运行评价历史爬虫。"""
+    """运行游戏信息爬虫（入口包装）。"""
+    asyncio.run(
+        run_games_scraper_async(config, args, failure_manager, ui, stop_event)
+    )
+
+
+async def run_reviews_scraper_async(
+    config: Config,
+    args: argparse.Namespace,
+    failure_manager: FailureManager,
+    ui: UIManager,
+    stop_event: threading.Event,
+) -> None:
+    """异步运行评价历史爬虫逻辑。"""
     checkpoint = Checkpoint(config=config)
-    
+
     # 检查是否存在 games 失败记录
     game_failures = _get_game_failures(failure_manager, checkpoint)
     if game_failures:
@@ -405,9 +406,9 @@ def run_reviews_scraper(
         if not ui.confirm("是否忽略警告，继续爬取 reviews？", default=False):
             ui.print("操作已取消。请先处理 games 失败记录。")
             return
-    
+
     if not args.resume:
-        checkpoint.clear_task("review")  # 只清除 reviews 状态，不影响 games
+        checkpoint.clear_task("review")  # 只清除 reviews 状态
 
     scraper = ReviewScraper(
         config=config,
@@ -418,29 +419,42 @@ def run_reviews_scraper(
     )
 
     if args.input:
-        scraper.scrape_from_file(args.input)
+        await scraper.scrape_from_file(args.input)
     else:
         db = DatabaseManager(config.output.db_path)
         app_ids = db.get_all_app_ids()
         db.close()
-        
+
         if not app_ids:
             ui.print_warning("数据库中没有游戏数据，请先运行 'python main.py games'")
             return
-            
-        scraper.scrape_from_list(app_ids)
+
+        await scraper.scrape_from_list(app_ids)
 
     ui.print_success(f"评价数据爬取完成！数据已存入 [bold]{config.output.db_path}[/bold]")
 
 
-def run_all(
+def run_reviews_scraper(
     config: Config,
     args: argparse.Namespace,
     failure_manager: FailureManager,
     ui: UIManager,
     stop_event: threading.Event,
 ) -> None:
-    """运行完整爬取流程。"""
+    """运行评价历史爬虫（入口包装）。"""
+    asyncio.run(
+        run_reviews_scraper_async(config, args, failure_manager, ui, stop_event)
+    )
+
+
+async def run_all_async(
+    config: Config,
+    args: argparse.Namespace,
+    failure_manager: FailureManager,
+    ui: UIManager,
+    stop_event: threading.Event,
+) -> None:
+    """异步运行完整爬取流程逻辑。"""
     checkpoint = Checkpoint(config=config)
     if not args.resume:
         checkpoint.clear()
@@ -453,7 +467,7 @@ def run_all(
         ui_manager=ui,
         stop_event=stop_event,
     )
-    game_scraper.run(max_pages=args.pages)
+    await game_scraper.run(max_pages=args.pages)
 
     if stop_event.is_set():
         return
@@ -466,7 +480,9 @@ def run_all(
             "继续爬取 reviews 可能导致数据不完整。"
         )
         if not ui.confirm("是否继续爬取 reviews？（建议先处理失败项目）", default=True):
-            ui.print("已停止。请使用 [cyan]python main.py retry --type game[/cyan] 处理失败项目后重试。")
+            ui.print(
+                "已停止。请使用 [cyan]python main.py retry --type game[/cyan] 处理失败项目后重试。"
+            )
             return
 
     ui.print("\n")
@@ -480,66 +496,72 @@ def run_all(
         ui_manager=ui,
         stop_event=stop_event,
     )
-    review_scraper.scrape_from_list(app_ids)
+    await review_scraper.scrape_from_list(app_ids)
 
     if stop_event.is_set():
         return
 
     ui.print("\n")
     ui.print_panel("Step 3/3: 导出数据", style="blue")
-    run_export(config, argparse.Namespace(output="data/steam_data.xlsx"), ui)
+    
+    # 导出仍是同步操作，可以直接调用
+    await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/steam_data.xlsx"), ui)
 
     ui.print_success("🎉 全部完成！Enjoy your data.")
+
+
+def run_all(
+    config: Config,
+    args: argparse.Namespace,
+    failure_manager: FailureManager,
+    ui: UIManager,
+    stop_event: threading.Event,
+) -> None:
+    """运行完整爬取流程（入口包装）。"""
+    asyncio.run(run_all_async(config, args, failure_manager, ui, stop_event))
 
 
 def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> None:
     """导出数据。"""
     ui.print_info(f"正在导出数据到 [bold]{args.output}[/bold]...")
-    
+
     if not Path(config.output.db_path).exists():
-        ui.print_error(f"数据库文件不存在: {config.output.db_path}\n请先运行 'python main.py games' 等相关命令抓取数据。")
+        ui.print_error(
+            f"数据库文件不存在: {config.output.db_path}\n"
+            "请先运行 'python main.py games' 等相关命令抓取数据。"
+        )
         return
 
     db = DatabaseManager(config.output.db_path)
     try:
         with ui.create_progress() as progress:
-            task = progress.add_task("导出中...", total=100) # 假进度条，因为导出是阻塞的
+            task = progress.add_task("导出中...", total=100)  # 假进度条
             progress.update(task, advance=50)
             db.export_to_excel(args.output)
             progress.update(task, completed=100)
-            
+
         ui.print_success("导出成功！")
     except Exception as e:
         ui.print_error(f"导出失败: {e}")
     finally:
         db.close()
-        
-def run_retry(
-    config: Config, args: argparse.Namespace, failure_manager: FailureManager, ui: UIManager
+
+
+async def run_retry_async(
+    config: Config,
+    args: argparse.Namespace,
+    failure_manager: FailureManager,
+    ui: UIManager,
 ) -> None:
-    """运行重试逻辑。
-
-    此函数会合并两个来源的失败记录：
-    1. FailureManager (failures.json) - 详细的失败日志
-    2. Checkpoint (failed_appids) - 断点记录中的失败 ID
-
-    Args:
-        config: 配置对象。
-        args: 命令行参数。
-        failure_manager: 失败管理器。
-        ui: UI 管理器。
-    """
+    """异步运行重试逻辑。"""
     ui.print_info("开始检查失败项目...")
 
     # 1. 从 FailureManager 获取失败记录
-    # FailureManager 存储带有详细错误原因的失败日志
     failures = failure_manager.get_failures()
 
     # 2. 从 Checkpoint 获取 failed_appids（合并到 failures 列表）
-    # Checkpoint 的 failed_appids 是另一个失败来源（可能没有详细原因）
-    # 需要合并两个来源以确保不遗漏任何失败项目
     checkpoint = Checkpoint(config=config)
-    
+
     # 2.1 Games 失败记录
     existing_ids = {(f["type"], f["id"]) for f in failures}
     for app_id in checkpoint.get_failed_appids("game"):
@@ -550,7 +572,7 @@ def run_retry(
                 "reason": "从断点记录恢复（无详细原因）",
             })
             existing_ids.add(("game", app_id))
-    
+
     # 2.2 Reviews 失败记录
     for app_id in checkpoint.get_failed_appids("review"):
         if ("review", app_id) not in existing_ids:
@@ -570,31 +592,33 @@ def run_retry(
     table.add_column("Type", style="cyan")
     table.add_column("ID", style="magenta")
     table.add_column("Reason", style="red")
-    
+
     for f in failures:
-         table.add_row(f["type"], str(f["id"]), f["reason"][:50]) # 截断原因
-         
+        table.add_row(f["type"], str(f["id"]), f["reason"][:50])
+
     ui.console.print(table)
-    
+
     if not ui.confirm("是否立即重试这些项目？", default=True):
-         ui.print("操作已取消。")
-         return
+        ui.print("操作已取消。")
+        return
 
     # 使用同一个 checkpoint 实例，确保 retry 成功后状态被正确更新
-    game_scraper = GameScraper(config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui)
-    review_scraper = ReviewScraper(config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui)
+    game_scraper = GameScraper(
+        config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui
+    )
+    review_scraper = ReviewScraper(
+        config=config, checkpoint=checkpoint, failure_manager=failure_manager, ui_manager=ui
+    )
 
-    # 按类型优先级排序：先处理 games，再处理 reviews
-    # 这个排序至关重要，因为 reviews 爬取依赖于 games 表中的数据存在
-    # 如果先重试 review 失败项，可能因为对应 game 不存在而再次失败
+    # 先处理 games，再处理 reviews
     failures.sort(key=lambda f: 0 if f["type"] == "game" else 1)
-    
+
     retry_count = 0
     success_count = 0
 
     with ui.create_progress() as progress:
         task = progress.add_task("重试中...", total=len(failures))
-        
+
         for failure in failures:
             item_type = failure["type"]
             item_id = int(failure["id"])
@@ -605,33 +629,46 @@ def run_retry(
 
             retry_count += 1
             is_success = False
-            
+
             try:
                 if item_type == "game":
-                    info = game_scraper.process_game(item_id, force=True)
+                    info = await game_scraper.process_game(item_id, force=True)
                     if info:
                         is_success = True
                 elif item_type == "review":
-                    reviews = review_scraper.scrape_reviews(item_id, force=True)
+                    reviews = await review_scraper.scrape_reviews(item_id, force=True)
                     if reviews:
                         is_success = True
             except Exception:
                 pass
-            
+
             if is_success:
                 failure_manager.remove_failure(item_type, item_id)
                 success_count += 1
-                
+
             progress.update(task, advance=1)
+    
+    # 最后关闭客户端连接
+    await game_scraper.client.close()
+    await review_scraper.client.close()
 
     ui.print_panel(
         f"重试结束。\n"
         f"尝试: {retry_count}\n"
         f"成功: [green]{success_count}[/green]\n"
         f"剩余: [red]{retry_count - success_count}[/red]",
-        title="重试报告"
+        title="重试报告",
     )
 
+
+def run_retry(
+    config: Config,
+    args: argparse.Namespace,
+    failure_manager: FailureManager,
+    ui: UIManager,
+) -> None:
+    """运行重试逻辑（入口包装）。"""
+    asyncio.run(run_retry_async(config, args, failure_manager, ui))
 
 
 if __name__ == "__main__":

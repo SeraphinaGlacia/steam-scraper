@@ -1,35 +1,36 @@
 """
 评价历史爬虫模块。
 
-从 Steam 获取游戏的评价统计历史数据，支持并发爬取和数据库存储。
+从 Steam 获取游戏的评价统计历史数据，支持异步并发爬取和数据库存储。
 与游戏信息爬虫不同，评价数据来自 reviewhistogram API，
 返回的是每天的好评/差评数量统计。
 """
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from src.config import Config, get_config
 from src.database import DatabaseManager
 from src.models import ReviewSnapshot
 from src.utils.checkpoint import Checkpoint
-from src.utils.http_client import HttpClient
+from src.utils.http_client import AsyncHttpClient
 from src.utils.ui import UIManager
 
 
 class ReviewScraper:
-    """Steam 评价历史爬虫。
+    """Steam 评价历史爬虫（异步版本）。
 
     从 Steam API 获取游戏的评价统计历史数据。
+    使用 asyncio 实现真正的非阻塞并发，显著提升爬取效率。
 
     Attributes:
         config: 配置对象。
-        client: HTTP 客户端。
+        client: 异步 HTTP 客户端。
         checkpoint: 断点管理器。
         db: 数据库管理器。
         ui: UI 管理器。
@@ -53,14 +54,14 @@ class ReviewScraper:
             stop_event: 可选的停止事件标志。
         """
         self.config = config or get_config()
-        self.client = HttpClient(self.config)
+        self.client = AsyncHttpClient(self.config)
         self.checkpoint = checkpoint
         self.failure_manager = failure_manager
         self.db = DatabaseManager(self.config.output.db_path)
         self.ui = ui_manager or UIManager()
         self.stop_event = stop_event
 
-    def scrape_reviews(self, app_id: int, force: bool = False) -> list[ReviewSnapshot]:
+    async def scrape_reviews(self, app_id: int, force: bool = False) -> list[ReviewSnapshot]:
         """爬取指定游戏的评价历史数据并保存。
 
         Args:
@@ -85,7 +86,7 @@ class ReviewScraper:
         reviews: list[ReviewSnapshot] = []
 
         try:
-            data = self.client.get_json(url, delay=True)
+            data = await self.client.get_json(url, delay=True)
             rollups = data.get("results", {}).get("rollups", [])
 
             for item in rollups:
@@ -106,13 +107,12 @@ class ReviewScraper:
                     recommendations_down=negative,
                 )
                 reviews.append(review)
-            
+
             # 保存到数据库
             if reviews:
                 self.db.save_reviews(app_id, reviews)
                 if self.checkpoint:
                     self.checkpoint.mark_appid_completed(app_id, "review")
-                # print(f"已保存游戏 {app_id} 的 {len(reviews)} 条评价记录")
 
         except Exception as e:
             error_msg = f"爬取游戏 {app_id} 评价历史失败: {e}"
@@ -124,7 +124,7 @@ class ReviewScraper:
 
         return reviews
 
-    def scrape_from_file(
+    async def scrape_from_file(
         self,
         file_path: str | Path,
     ) -> None:
@@ -149,13 +149,16 @@ class ReviewScraper:
                 except ValueError:
                     self.ui.print_warning(f"无效的 AppID: {appid_str}")
 
-        self.scrape_from_list(app_ids)
+        await self.scrape_from_list(app_ids)
 
-    def scrape_from_list(
+    async def scrape_from_list(
         self,
         app_ids: list[int],
     ) -> None:
-        """从列表批量爬取评价数据（并发）。
+        """从列表批量爬取评价数据（异步并发）。
+
+        使用 asyncio.Semaphore 控制并发数，避免同时发起过多请求。
+        相比 ThreadPoolExecutor，异步模式能更高效地利用系统资源。
 
         Args:
             app_ids: app_id 列表。
@@ -164,23 +167,42 @@ class ReviewScraper:
             f"开始爬取 {len(app_ids)} 个游戏的评价，并发数: {self.config.scraper.max_workers}"
         )
 
+        # 使用信号量限制并发数
+        semaphore = asyncio.Semaphore(self.config.scraper.max_workers)
+
+        async def limited_scrape(app_id: int) -> tuple[int, list[ReviewSnapshot]]:
+            """带并发限制的评价爬取函数。
+            
+            Args:
+                app_id: Steam 游戏 ID。
+                
+            Returns:
+                tuple: (app_id, 评价快照列表)
+            """
+            async with semaphore:
+                # 检查停止信号
+                if self.stop_event and self.stop_event.is_set():
+                    return app_id, []
+                result = await self.scrape_reviews(app_id)
+                return app_id, result
+
         with self.ui.create_progress() as progress:
             task = progress.add_task("[green]抓取评价...", total=len(app_ids))
 
-            # 使用线程池并发爬取，显著提升效率
-            # 因为每个请求主要是网络 IO 等待，线程池能充分利用这些等待时间
-            with ThreadPoolExecutor(max_workers=self.config.scraper.max_workers) as executor:
-                futures = {}
-                for app_id in app_ids:
-                    if self.stop_event and self.stop_event.is_set():
-                        break
-                    futures[executor.submit(self.scrape_reviews, app_id)] = app_id
+            # 创建所有任务
+            tasks = [limited_scrape(app_id) for app_id in app_ids]
 
-                for future in as_completed(futures):
-                    app_id = futures[future]
-                    try:
-                        future.result()
-                    except Exception as e:
-                        self.ui.print_error(f"处理游戏 {app_id} 评价异常: {e}")
-                    finally:
-                        progress.update(task, advance=1)
+            # 使用 asyncio.as_completed 实现实时进度更新
+            for future in asyncio.as_completed(tasks):
+                try:
+                    result = await future
+                    app_id, reviews = result
+                    if not reviews and self.checkpoint:
+                        pass
+                except Exception as e:
+                    self.ui.print_error(f"处理评价异常: {e}")
+                finally:
+                    progress.update(task, advance=1)
+
+        # 关闭 HTTP 客户端释放资源
+        await self.client.close()
