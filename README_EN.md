@@ -180,6 +180,7 @@ After running, the `data/` directory will verify:
 | :--- | :--- |
 | `steam_data.db` | **Core Database** (SQLite). Contains `games` and `reviews` tables, suitable for direct SQL queries. |
 | `steam_data.xlsx` | **Final Report**. Contains two sheets, ready for analysis without coding. |
+| `steam_*.csv` | **CSV Dataset**. Generated for huge datasets, UTF-8-SIG encoded for Excel compatibility. |
 | `failures.json` | **Failure Log**. Records failed IDs, reasons, timestamps, etc. Deleted after successful `retry`. |
 | `.checkpoint.json` | **Progress Save**. Records completed/failed ID lists for `--resume`. Contains independent states for games and reviews. |
 

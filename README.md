@@ -178,6 +178,7 @@ output:
 | :--- | :--- |
 | `steam_data.db` | **核心数据库** (SQLite)。包含 `games` 和 `reviews` 两张表，适合开发者直接查询。 |
 | `steam_data.xlsx` | **最终报表**。包含两个 Sheet，无需写代码即可分析数据。 |
+| `steam_*.csv` | **CSV 数据集**。当数据量超过 Excel 限制时生成，采用 UTF-8-SIG 编码，兼容 Excel。 |
 | `failures.json` | **失败日志**。记录失败的 ID、原因、时间戳等详细信息，便于排查问题。`retry` 成功后会删除对应条目。 |
 | `.checkpoint.json` | **进度存档**。记录已完成/失败的 ID 列表，用于 `--resume` 断点续传。包含 games 和 reviews 的独立状态。 |
 
