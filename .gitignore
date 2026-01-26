@@ -52,4 +52,6 @@ Thumbs.db
 scripts/
 GEMINI.md
 CLAUDE.md
-requirements/   
+requirements/
+.agent/
+.agents/
