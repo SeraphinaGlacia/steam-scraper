@@ -165,50 +165,63 @@ class ReviewScraper:
         Args:
             app_ids: app_id 列表。
         """
+        # 预处理：去重和断点跳过
+        seen_appids: set[int] = set()
+        skipped_appids: list[int] = []  # 本轮内动态重复（需汇报）
+        unique_app_ids: list[int] = []
+
+        for app_id in app_ids:
+            # 情况1：本轮内已出现过（列表重复）→ 汇报
+            if app_id in seen_appids:
+                skipped_appids.append(app_id)
+                continue
+            seen_appids.add(app_id)
+            # 情况2：断点中已完成 → 静默跳过，不汇报（这是 --resume 的预期行为）
+            if self.checkpoint and self.checkpoint.is_appid_completed(app_id, "review"):
+                continue
+            unique_app_ids.append(app_id)
+
         self.ui.print_info(
-            f"开始爬取 {len(app_ids)} 个游戏的评价，并发数: {self.config.scraper.max_workers}"
+            f"开始爬取 {len(unique_app_ids)} 个游戏的评价（跳过 {len(app_ids) - len(unique_app_ids) - len(skipped_appids)} 个已完成），"
+            f"并发数: {self.config.scraper.max_workers}"
         )
 
         # 使用信号量限制并发数
         semaphore = asyncio.Semaphore(self.config.scraper.max_workers)
 
-        async def limited_scrape(app_id: int) -> tuple[int, list[ReviewSnapshot], bool]:
+        async def limited_scrape(app_id: int) -> tuple[int, list[ReviewSnapshot]]:
             """带并发限制的评价爬取函数。
             
             Args:
                 app_id (int): Steam 游戏 ID。
                 
             Returns:
-                tuple[int, list[ReviewSnapshot], bool]: (app_id, 评价快照列表, 是否跳过重复)
+                tuple[int, list[ReviewSnapshot]]: (app_id, 评价快照列表)
             """
             async with semaphore:
                 # 检查停止信号
                 if self.stop_event and self.stop_event.is_set():
-                    return app_id, [], False
-                result, skipped = await self.scrape_reviews(app_id)
-                return app_id, result, skipped
-
-        skipped_appids: list[int] = []  # 收集跳过的重复 AppID
+                    return app_id, []
+                # 不再需要 skipped 返回值，因为断点跳过已在外层处理
+                result, _ = await self.scrape_reviews(app_id)
+                return app_id, result
 
         with self.ui.create_progress() as progress:
-            task = progress.add_task("[green]抓取评价...", total=len(app_ids))
+            task = progress.add_task("[green]抓取评价...", total=len(unique_app_ids))
 
-            # 创建所有任务
-            tasks = [limited_scrape(app_id) for app_id in app_ids]
+            # 创建所有任务（只处理不重复且未完成的）
+            tasks = [limited_scrape(app_id) for app_id in unique_app_ids]
 
             # 使用 asyncio.as_completed 实现实时进度更新
             for future in asyncio.as_completed(tasks):
                 try:
-                    result = await future
-                    app_id, reviews, skipped = result
-                    if skipped:
-                        skipped_appids.append(app_id)
+                    await future
                 except Exception as e:
                     self.ui.print_error(f"处理评价异常: {e}")
                 finally:
                     progress.update(task, advance=1)
 
-        # 输出跳过的重复 AppID 汇总
+        # 输出跳过的重复 AppID 汇总（只汇报本轮内动态重复）
         if skipped_appids:
             self.ui.print_warning(
                 f"跳过 {len(skipped_appids)} 个重复 AppID: {skipped_appids}"

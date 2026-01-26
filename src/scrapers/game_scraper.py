@@ -287,14 +287,18 @@ class GameScraper:
                 if not app_ids:
                     continue
 
-                # 在创建任务前进行去重：检查是否已在本轮出现过
+                # 在创建任务前进行去重
                 unique_app_ids = []
                 for app_id in app_ids:
+                    # 情况1：本轮内已出现过（动态 sort 重复）→ 汇报
                     if app_id in seen_appids:
                         skipped_appids.append(app_id)
-                    else:
-                        seen_appids.add(app_id)
-                        unique_app_ids.append(app_id)
+                        continue
+                    seen_appids.add(app_id)
+                    # 情况2：断点中已完成 → 静默跳过，不汇报（这是 --resume 的预期行为）
+                    if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
+                        continue
+                    unique_app_ids.append(app_id)
 
                 # 动态更新游戏任务总量，因为每页返回的游戏数不固定
                 progress.update(
