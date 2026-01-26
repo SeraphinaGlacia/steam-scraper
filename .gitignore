@@ -39,6 +39,7 @@ data/*.xlsx
 data/*.txt
 data/*.db   
 data/*.json
+data/*.csv
 !data/.gitkeep
 
 # OS
