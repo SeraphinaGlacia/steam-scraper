@@ -236,14 +236,6 @@ def run_reset(config: Config, failure_manager: FailureManager, ui: UIManager) ->
         title="重置项目 Reset Project",
         style="red",
     )
-    
-    # ... (省略中间未变更代码以节省 token，如果需要请查阅) ...
-    # 实际上 replace_file_content 最好上下文完整。
-    # 这里我选择分块替换以避免太长。
-
-# 分开两个块替换更稳妥。
-# 这里只替换 export_parser 部分。
-
 
     if not ui.confirm("[bold red]确认要重置吗？[/bold red]"):
         ui.print("操作已取消。")
@@ -666,11 +658,11 @@ async def run_retry_async(
 
             try:
                 if item_type == "game":
-                    info = await game_scraper.process_game(item_id, force=True)
+                    info, _ = await game_scraper.process_game(item_id, force=True)
                     if info:
                         is_success = True
                 elif item_type == "review":
-                    reviews = await review_scraper.scrape_reviews(item_id, force=True)
+                    reviews, _ = await review_scraper.scrape_reviews(item_id, force=True)
                     if reviews:
                         is_success = True
             except Exception:

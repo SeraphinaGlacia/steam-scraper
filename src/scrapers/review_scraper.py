@@ -61,22 +61,24 @@ class ReviewScraper:
         self.ui = ui_manager or UIManager()
         self.stop_event = stop_event
 
-    async def scrape_reviews(self, app_id: int, force: bool = False) -> list[ReviewSnapshot]:
+    async def scrape_reviews(
+        self, app_id: int, force: bool = False
+    ) -> tuple[list[ReviewSnapshot], bool]:
         """爬取指定游戏的评价历史数据并保存。
 
         Args:
-            app_id: Steam 游戏 ID。
-            force: 强制模式，跳过失败标记检查（用于 retry 场景）。
+            app_id (int): Steam 游戏 ID。
+            force (bool): 强制模式，跳过失败标记检查（用于 retry 场景）。默认为 False。
 
         Returns:
-            list[ReviewSnapshot]: 评价快照列表。
+            tuple[list[ReviewSnapshot], bool]: (评价快照列表, 是否跳过重复)
         """
-        # 检查断点（使用 review 专用状态）
+        # 检查断点（使用 review 专用状态，同时检测重复）
         if self.checkpoint and self.checkpoint.is_appid_completed(app_id, "review"):
-            return []
+            return [], True  # 跳过重复
         # force=True 时跳过失败检查，用于 retry 场景
         if self.checkpoint and self.checkpoint.is_appid_failed(app_id, "review") and not force:
-            return []
+            return [], False
 
         url = (
             f"https://store.steampowered.com/appreviewhistogram/{app_id}"
@@ -122,7 +124,7 @@ class ReviewScraper:
             if self.checkpoint:
                 self.checkpoint.mark_appid_failed(app_id, "review")
 
-        return reviews
+        return reviews, False
 
     async def scrape_from_file(
         self,
@@ -170,21 +172,23 @@ class ReviewScraper:
         # 使用信号量限制并发数
         semaphore = asyncio.Semaphore(self.config.scraper.max_workers)
 
-        async def limited_scrape(app_id: int) -> tuple[int, list[ReviewSnapshot]]:
+        async def limited_scrape(app_id: int) -> tuple[int, list[ReviewSnapshot], bool]:
             """带并发限制的评价爬取函数。
             
             Args:
-                app_id: Steam 游戏 ID。
+                app_id (int): Steam 游戏 ID。
                 
             Returns:
-                tuple: (app_id, 评价快照列表)
+                tuple[int, list[ReviewSnapshot], bool]: (app_id, 评价快照列表, 是否跳过重复)
             """
             async with semaphore:
                 # 检查停止信号
                 if self.stop_event and self.stop_event.is_set():
-                    return app_id, []
-                result = await self.scrape_reviews(app_id)
-                return app_id, result
+                    return app_id, [], False
+                result, skipped = await self.scrape_reviews(app_id)
+                return app_id, result, skipped
+
+        skipped_appids: list[int] = []  # 收集跳过的重复 AppID
 
         with self.ui.create_progress() as progress:
             task = progress.add_task("[green]抓取评价...", total=len(app_ids))
@@ -196,13 +200,19 @@ class ReviewScraper:
             for future in asyncio.as_completed(tasks):
                 try:
                     result = await future
-                    app_id, reviews = result
-                    if not reviews and self.checkpoint:
-                        pass
+                    app_id, reviews, skipped = result
+                    if skipped:
+                        skipped_appids.append(app_id)
                 except Exception as e:
                     self.ui.print_error(f"处理评价异常: {e}")
                 finally:
                     progress.update(task, advance=1)
+
+        # 输出跳过的重复 AppID 汇总
+        if skipped_appids:
+            self.ui.print_warning(
+                f"跳过 {len(skipped_appids)} 个重复 AppID: {skipped_appids}"
+            )
 
         # 关闭 HTTP 客户端释放资源
         await self.client.close()

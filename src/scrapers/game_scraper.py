@@ -116,6 +116,13 @@ class GameScraper:
             if data.get(str(app_id), {}).get("success"):
                 game_data = data[str(app_id)]["data"]
                 return GameInfo.from_api_response(app_id, game_data)
+            else:
+                # API 返回 success=false，可能是 DLC、已下架游戏等
+                # 静默记录失败，不在终端打印错误避免刷屏
+                if self.failure_manager:
+                    self.failure_manager.log_failure(
+                        "game", app_id, "API returned success=false (可能是 DLC/已下架)"
+                    )
 
         except Exception as e:
             error_msg = f"获取游戏 {app_id} 详情失败: {e}"
@@ -151,16 +158,22 @@ class GameScraper:
             for game in games:
                 # data-ds-appid 是 Steam 搜索结果页面中的自定义属性
                 # 它存储了游戏的 AppID，用于后续获取详细信息
+                # 注意：捆绑包/合集可能包含逗号分隔的多个 AppID（如 "123,456,789"）
+                # 此时只取第一个 AppID
                 app_id_str = game.get("data-ds-appid")
                 if app_id_str:
-                    app_ids.append(int(app_id_str))
+                    # 处理逗号分隔的多 AppID 情况（捆绑包）
+                    first_id = app_id_str.split(",")[0]
+                    app_ids.append(int(first_id))
 
         except Exception as e:
             self.ui.print_error(f"爬取第 {page} 页列表失败: {e}")
 
         return app_ids
 
-    async def process_game(self, app_id: int, force: bool = False) -> Optional[GameInfo]:
+    async def process_game(
+        self, app_id: int, force: bool = False
+    ) -> tuple[Optional[GameInfo], bool]:
         """处理单个游戏：获取详情并保存。
 
         此方法会先检查断点状态，跳过已完成或已失败的 AppID。
@@ -169,23 +182,23 @@ class GameScraper:
         - 失败的 AppID 被标记，避免无限重试
 
         Args:
-            app_id: Steam 游戏 ID。
-            force: 强制模式，跳过失败标记检查（用于 retry 场景）。
+            app_id (int): Steam 游戏 ID。
+            force (bool): 强制模式，跳过失败标记检查（用于 retry 场景）。默认为 False。
 
         Returns:
-            Optional[GameInfo]: 成功时返回游戏详情对象，以下情况返回 None：
-                - AppID 已完成爬取
-                - AppID 已标记为失败（非强制模式）
-                - 获取详情失败
+            tuple[Optional[GameInfo], bool]: (游戏详情, 是否跳过重复)
+                - 成功时返回 (游戏详情对象, False)
+                - 跳过重复时返回 (None, True)
+                - 失败时返回 (None, False)
         """
-        # 1. 检查是否已在断点中完成
+        # 1. 检查是否已在断点中完成（重复 AppID）
         if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
-            return None
+            return None, True  # 跳过重复
 
         # 2. 检查是否已标记为失败（避免重复尝试已知不可爬取的 ID）
         # force=True 时跳过此检查，用于 retry 场景
         if self.checkpoint and self.checkpoint.is_appid_failed(app_id) and not force:
-            return None
+            return None, False
 
         # 3. 尝试获取游戏详情
         details = await self.get_game_details(app_id)
@@ -201,7 +214,7 @@ class GameScraper:
             if self.checkpoint:
                 self.checkpoint.mark_appid_failed(app_id)
 
-        return details
+        return details, False
 
     async def run(
         self,
@@ -227,25 +240,27 @@ class GameScraper:
         )
 
         all_app_ids: list[int] = []
+        skipped_appids: list[int] = []  # 收集跳过的重复 AppID
+        seen_appids: set[int] = set()   # 追踪已见过的 AppID（用于本轮去重）
         
         # 使用信号量限制并发数，避免同时发起过多请求
         # 这是 asyncio 中控制并发度的标准方式
         semaphore = asyncio.Semaphore(self.config.scraper.max_workers)
 
-        async def limited_process(app_id: int) -> tuple[int, Optional[GameInfo]]:
+        async def limited_process(app_id: int) -> tuple[int, Optional[GameInfo], bool]:
             """带并发限制的游戏处理函数。
             
             使用信号量确保同时进行的请求数不超过 max_workers。
             
             Args:
-                app_id: Steam 游戏 ID。
+                app_id (int): Steam 游戏 ID。
                 
             Returns:
-                tuple: (app_id, 游戏详情或 None)
+                tuple[int, Optional[GameInfo], bool]: (app_id, 游戏详情或 None, 是否跳过重复)
             """
             async with semaphore:
-                result = await self.process_game(app_id)
-                return app_id, result
+                result, skipped = await self.process_game(app_id)
+                return app_id, result, skipped
 
         with self.ui.create_progress() as progress:
             # 采用双进度条设计：
@@ -272,24 +287,35 @@ class GameScraper:
                 if not app_ids:
                     continue
 
+                # 在创建任务前进行去重：检查是否已在本轮出现过
+                unique_app_ids = []
+                for app_id in app_ids:
+                    if app_id in seen_appids:
+                        skipped_appids.append(app_id)
+                    else:
+                        seen_appids.add(app_id)
+                        unique_app_ids.append(app_id)
+
                 # 动态更新游戏任务总量，因为每页返回的游戏数不固定
                 progress.update(
-                    game_task, total=progress.tasks[game_task].total + len(app_ids)
+                    game_task, total=progress.tasks[game_task].total + len(unique_app_ids)
                 )
 
-                # 创建并发任务
-                tasks = [limited_process(app_id) for app_id in app_ids]
+                # 创建并发任务（只处理不重复的）
+                tasks = [limited_process(app_id) for app_id in unique_app_ids]
                 
                 # 使用 asyncio.as_completed 实现实时进度更新
                 # 这会让进度条每抓完一个游戏就动一下，而不是等一页全部抓完才动
                 for future in asyncio.as_completed(tasks):
                     try:
                         result = await future
-                        app_id, game_info = result
+                        app_id, game_info, skipped = result
                         all_app_ids.append(app_id)
                         
-                        if game_info is None and self.checkpoint:
-                            # 如果返回 None 且不是因为已完成，则标记为失败
+                        if skipped:
+                            skipped_appids.append(app_id)
+                        elif game_info is None and self.checkpoint:
+                            # 如果返回 None 且不是因为已完成/跳过，则标记为失败
                             if not self.checkpoint.is_appid_completed(app_id):
                                 self.checkpoint.mark_appid_failed(app_id)
                     except Exception as e:
@@ -299,6 +325,12 @@ class GameScraper:
 
                 if self.checkpoint:
                     self.checkpoint.mark_page_completed(page)
+
+        # 输出跳过的重复 AppID 汇总
+        if skipped_appids:
+            self.ui.print_warning(
+                f"跳过 {len(skipped_appids)} 个重复 AppID: {skipped_appids}"
+            )
 
         # 关闭 HTTP 客户端释放资源
         await self.client.close()
