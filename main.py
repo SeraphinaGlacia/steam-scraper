@@ -520,8 +520,9 @@ async def run_all_async(
     ui.print("\n")
     ui.print_panel("Step 3/3: 导出数据", style="blue")
     
-    # 导出仍是同步操作，可以直接调用
-    await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/steam_data.xlsx"), ui)
+    # 同时导出 Excel 和 CSV 两种格式
+    await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/steam_data.xlsx", format="excel"), ui)
+    await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/", format="csv"), ui)
 
     ui.print_success("🎉 全部完成！Enjoy your data.")
 
