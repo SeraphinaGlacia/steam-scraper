@@ -2,19 +2,20 @@
   <p align="center">
     <img src="assets/demo.svg" alt="Terminal Demo" width="600">
   </p>
+
   <h1>Simple Steam Scraper</h1>
   <p>
-    <strong>A high-performance Steam data scraper based on Python, bringing you an ultimate data scraping experience.</strong>
+    <strong>A simple, efficient, and visual Steam data collection assistant.</strong>
   </p>
   <p>
-    Not just powerful, but elegant. Immersive TUI built with <code>Rich</code>, making data collection no longer boring.
+    Designed for data analysis and mining. Built on a fully asynchronous architecture, making data scraping as natural as breathing.
   </p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/SeraphinaGlacia/simple-steam-scraper?style=flat-square" alt="License"></a>
     <img src="https://img.shields.io/badge/python-3.8+-blue?style=flat-square&logo=python&logoColor=white" alt="Python Version">
     <img src="https://img.shields.io/github/repo-size/SeraphinaGlacia/simple-steam-scraper?style=flat-square" alt="Repo Size">
-    <img src="https://img.shields.io/badge/UI-Rich-purple?style=flat-square" alt="UI powered by Rich">
+    <img src="https://img.shields.io/badge/arch-AsyncIO-green?style=flat-square" alt="Architecture">
   </p>
 
   <p>
@@ -24,33 +25,32 @@
   </p>
 </div>
 
-> [!WARNING]
-> This documentation is translated from Chinese using Gemini and may not be completely accurate.
-
 ---
 
-## ✨ Core Features
+> [!WARNING]
+> This documentation is translated from the [Chinese version](README.md) and may not be completely accurate.
 
-- **🎨 Ultimate Terminal UI Experience**
-    - Say goodbye to scrolling plain text logs, embrace **Panels**, **Tables**, and **Progress Bars**.
-    - Key information is highlighted, error logs are clear and readable, making the scraper's running status clear at a glance.
-    - Includes a cool ASCII Art splash screen for that extra ritualistic feel.
+## ✨ Why Choose This?
 
-- **🚀 High-Performance Concurrent Scraping**
-    - Built-in `ThreadPoolExecutor` supports high-concurrency scraping with **10x+** speed.
-    - Smart rate limiting and retry mechanisms find the perfect balance between speed and stability.
+- **⚡️ Blazing Fast Collection**
+    - Powered by an **AsyncIO** core engine to easily maximize your network bandwidth on a single machine.
+    - Intelligent concurrency control + millisecond-level request intervals find the perfect balance between speed and anti-bot measures.
 
-- **🛡️ Robust Resume Capability**
-    - Unexpected power outage? Network interruption? No worries!
-    - Progress is saved in real-time. Resume seamlessly from where you left off with the `--resume` command, refusing repetitive work.
+- **📺 Beautiful & Intuitive Terminal UI**
+    - Don't understand code? No problem! This program is not just cold lines of code, but features a beautiful and easy-to-understand terminal interface.
+    - Integrated with **Rich** to provide clear control instructions, progress bars, and statistical panels. Even **non-tech users** can intuitively operate and monitor the running status.
 
-- **🗄️ Enterprise-Grade Data Management**
-    - **SQLite Storage**: Not simple CSV, but a relational database with rigorous structure and efficient querying.
-    - **One-Click Export**: Supports exporting all data (game basic info + history reviews) into perfectly formatted **Excel** reports.
+- **🛡️ Say Goodbye to "Starting Over"**
+    - Internet cut off or errored out at 99%? Don't panic.
+    - Built-in industrial-grade **checkpoint resuming** mechanism lets you pause and resume anytime. Every single scrapped record is safely saved.
 
-- **🔄 Smart Failure Retry**
-    - Automatically captures all failed task IDs and reasons.
-    - Provides an interactive retry command `retry` to precisely target failed items, ensuring 100% data integrity.
+- **🚀 Ready for Analysis**
+    - Not just scraping, but for analysis.
+    - Data is stored directly into a structured **SQLite** database; supports one-click export to standard **Excel** reports, so you can start analyzing without writing extra code.
+
+- **🔧 Zero-Code Configuration**
+    - Concurrency, timeout, retry counts, target currency... all parameters can be adjusted via `config.yaml`.
+    - Even users who don't know how to code can customize their own scraper through simple configuration.
 
 ---
 
@@ -66,9 +66,9 @@ cd simple-steam-scraper
 pip install -r requirements.txt
 ```
 
-### 2. Experience the Cool Splash Screen (Easter Egg 🎪)
+### 2. Experience the Splash Screen (Easter Egg 🎪) 
 
-We hid this command in the help menu, and although it has no practical function, you can run it directly to test your environment configuration and admire the splash screen:
+We hid this command in the CLI help, though it serves no practical purpose, you can run it to test your environment and inspect the splash screen:
 
 ```bash
 python main.py start
@@ -76,13 +76,13 @@ python main.py start
 
 ### 3. Standard Workflow
 
-The most commonly used fully automated one-stop service:
+The most commonly used all-in-one command:
 
 ```bash
-# 1. Start the complete scraping task (Game Info -> Review History -> Export Excel)
+# 1. Start the complete scraping task (Games -> Reviews -> Export Excel)
 python main.py all
 
-# 2. If the task is interrupted, resume progress
+# 2. If interrupted, resume progress
 python main.py all --resume
 ```
 
@@ -90,54 +90,54 @@ python main.py all --resume
 
 ## 📖 Detailed Command Guide
 
-Our CLI design follows the UNIX philosophy, providing rich subcommands:
+Our CLI follows UNIX philosophy, providing rich subcommands:
 
 ### 🎮 Scrape Game Info (`games`)
 
-Scrape only the basic game data from the Steam store (price, developer, positive rating rate, etc.).
+Only scrapes basic game data (price, developer, rating, etc.) from the Steam store.
 
 ```bash
 python main.py games              # Scrape all pages
-python main.py games --pages 10   # Scrape only the first 10 pages (suitable for testing)
-python main.py games --resume     # Continue from the last interruption
+python main.py games --pages 10   # Scrape only first 10 pages (for testing)
+python main.py games --resume     # Resume from last checkpoint
 ```
 
 ### 📝 Scrape Review History (`reviews`)
 
-For games whose basic information has already been written to the database, scrape their historical review trend data.
+Scrapes historical review trend data for games already in the database.
 
 ```bash
-python main.py reviews            # Scrape reviews for all games in the database
-python main.py reviews --resume   # Resume from breakpoint
+python main.py reviews            # Scrape reviews for all games in DB
+python main.py reviews --resume   # Resume from checkpoint
 ```
 
 ### 📤 Export Data (`export`)
 
-Export the content of the SQLite database to an Excel file.
+Exports content from SQLite database to an Excel file.
 
 ```bash
 python main.py export
-# The output file is located at data/steam_data.xlsx by default
+# Output file defaults to data/steam_data.xlsx
 ```
 
 ### 🔄 Retry Failures (`retry`)
 
-The program automatically records all failed requests. Failures caused by network fluctuations can be fixed with one click using this command.
+The program automatically logs all failed requests. Failures due to network fluctuations can be fixed with one click using this command.
 
 ```bash
 python main.py retry              # Retry all failed tasks
 python main.py retry --type game  # Retry only game info tasks
 ```
 
-### 🧹 Maintenance & Cleanup (`clean` / `reset`)
+### 🧹 Maintenance (`clean` / `reset`)
 
-Keep the project clean.
+Keep the project tidy.
 
 > [!CAUTION]
-> The `reset` command will delete ALL data, including the database, exported files, failure logs, etc., and CANNOT be recovered!
+> The `reset` command will delete ALL data, including database, exported files, failure logs, etc., and is irreversible!
 
 ```bash
-python main.py clean    # Clean up Python cache, checkpoint files, and other temporary files
+python main.py clean    # Clean Python cache, checkpoints, and temporary files
 python main.py reset    # ⚠️ [DANGER] Delete database and all data, reset to initial state
 ```
 
@@ -151,14 +151,14 @@ All magic is defined in `config.yaml`, which you can customize as you wish:
 scraper:
   language: english       # Steam store language
   currency: us            # Currency code
-  category: "998"         # Category ID (998 is for games)
-  max_workers: 10         # Concurrent threads (Default is 10, too high may lead to IP ban)
+  category: "998"         # Category ID (998 is for Games)
+  max_workers: 20         # Concurrency (15-20 recommended for AsyncIO, higher may trigger bans)
 
 http:
   timeout: 30             # Request timeout (seconds)
-  max_retries: 3          # Maximum retry attempts
-  min_delay: 1.0          # Minimum request interval (seconds)
-  max_delay: 3.0          # Maximum request interval (seconds)
+  max_retries: 3          # Max retries
+  min_delay: 0.5          # Min request interval (seconds)
+  max_delay: 1.5          # Max request interval (seconds)
 
 output:
   data_dir: ./data        # Data output directory
@@ -169,14 +169,14 @@ output:
 
 ## 📂 Data Structure
 
-After running, the `data/` directory will contain:
+After running, the `data/` directory will verify:
 
 | File | Description |
 | :--- | :--- |
-| `steam_data.db` | **Core Database** (SQLite). Contains `games` and `reviews` tables, suitable for direct query by developers. |
-| `steam_data.xlsx` | **Final Report**. Contains two Sheets, allowing data analysis without writing code. |
-| `failures.json` | **Failure Log**. Records failed IDs, reasons, timestamps, and other details for troubleshooting. Entries are removed after successful `retry`. |
-| `.checkpoint.json` | **Progress Save**. Records completed/failed ID lists for `--resume` capability. Contains independent states for games and reviews. |
+| `steam_data.db` | **Core Database** (SQLite). Contains `games` and `reviews` tables, suitable for direct SQL queries. |
+| `steam_data.xlsx` | **Final Report**. Contains two sheets, ready for analysis without coding. |
+| `failures.json` | **Failure Log**. Records failed IDs, reasons, timestamps, etc. Deleted after successful `retry`. |
+| `.checkpoint.json` | **Progress Save**. Records completed/failed ID lists for `--resume`. Contains independent states for games and reviews. |
 
 ---
 

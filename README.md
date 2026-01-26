@@ -5,17 +5,17 @@
 
   <h1>Simple Steam Scraper</h1>
   <p>
-    <strong>一个基于 Python 的高性能 Steam 数据爬虫，为您带来极致的数据爬取体验。</strong>
+    <strong>简单、高效、可视化的 Steam 数据采集助手。</strong>
   </p>
   <p>
-    不仅功能强大，更优雅迷人。基于 <code>Rich</code> 构建的沉浸式 TUI，让数据采集不再枯燥。
+    专为数据分析与挖掘设计。基于 AsyncIO 全异步架构，令数据抓取自然流畅。
   </p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/SeraphinaGlacia/simple-steam-scraper?style=flat-square" alt="License"></a>
     <img src="https://img.shields.io/badge/python-3.8+-blue?style=flat-square&logo=python&logoColor=white" alt="Python Version">
     <img src="https://img.shields.io/github/repo-size/SeraphinaGlacia/simple-steam-scraper?style=flat-square" alt="Repo Size">
-    <img src="https://img.shields.io/badge/UI-Rich-purple?style=flat-square" alt="UI powered by Rich">
+    <img src="https://img.shields.io/badge/arch-AsyncIO-green?style=flat-square" alt="Architecture">
   </p>
 
   <p>
@@ -27,28 +27,27 @@
 
 ---
 
-## ✨ 核心特性
+## ✨ 为什么选择它？
 
-- **🎨 极致的终端 UI 体验**
-    - 告别滚动的纯文本日志，拥抱 **Panel**、**Table** 和 **Progress**。
-    - 关键信息高亮显示，错误日志清晰可读，让爬虫运行状态一目了然。
-    - 更有炫酷的 ASCII Art 启动页，仪式感拉满。
+- **⚡️ 极速采集体验**
+    - 基于 **AsyncIO** 重构的核心引擎，单机即可轻松跑满网络带宽。
+    - 智能并发控制 + 毫秒级请求间隔，在速度与反爬封锁之间找到完美平衡点。
 
-- **🚀 高性能并发采集**
-    - 内置 `ThreadPoolExecutor` 线程池，支持 **10+ 倍** 速度的高并发抓取。
-    - 智能限流与重试机制，在速度与稳定性之间找到完美平衡。
+- **📺 美观易懂的终端界面**
+    - 看不懂代码？没有关系！本程序不止有冰冷的代码，更有美观易懂的终端界面。
+    - 集成 **Rich** 库构建，提供清晰的控制指令、进度条与统计面板。即使是**技术小白**，也能通过直观的仪表盘操作并掌握运行状态。
 
-- **🛡️ 健壮的断点续传**
-    - 意外断电？网络中断？不必担心！
-    - 实时保存进度，随时通过 `--resume` 命令无缝接续，拒绝重复劳动。
+- **🛡️ 告别“从头再来”**
+    - 爬到 99% 突然断网或报错？别担心。
+    - 内置工业级 **断点续传** 机制，随时中断，随时继续。每一条已抓取的数据都会被安全保存。
 
-- **🗄️ 企业级数据管理**
-    - **SQLite 存储**：并非简单的 CSV，而是使用关系型数据库，结构严谨，查询高效。
-    - **一键导出**：支持将所有数据（游戏基础信息 + 历史评价）导出为格式完美的 **Excel** 报表。
+- **🚀 分析即刻开始**
+    - 不仅仅是抓取，更是为了分析。
+    - 数据直接存入 **SQLite**，结构严谨；支持一键导出 **Excel** 报表，无需编写额外代码即可开始数据分析。
 
-- **🔄 智能失败重试**
-    - 自动捕获所有失败的任务 ID 与原因。
-    - 提供交互式的重试命令 `retry`，精准打击失败项，确保数据 100% 完整。
+- **🔧 零代码配置**
+    - 并发数、超时时间、目标货币区... 所有参数均可通过 `config.yaml` 调整。
+    - 即使是不懂代码的用户，也能通过简单的配置定制自己的爬虫。
 
 ---
 
@@ -150,13 +149,13 @@ scraper:
   language: english       # Steam 商店语言
   currency: us            # 货币代码
   category: "998"         # 分类 ID（998 为游戏）
-  max_workers: 10         # 并发线程数（默认为 10，过高可能导致 IP 封禁）
+  max_workers: 20         # 并发数（AsyncIO 模式下建议 15-20，过高可能导致 IP 封禁）
 
 http:
   timeout: 30             # 请求超时（秒）
   max_retries: 3          # 最大重试次数
-  min_delay: 1.0          # 请求间隔最小值（秒）
-  max_delay: 3.0          # 请求间隔最大值（秒）
+  min_delay: 0.5          # 请求间隔最小值（秒）
+  max_delay: 1.5          # 请求间隔最大值（秒）
 
 output:
   data_dir: ./data        # 数据输出目录
