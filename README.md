@@ -12,9 +12,9 @@
   </p>
 
   <p>
-    <a href="LICENSE"><img src="https://img.shields.io/github/license/SeraphinaGlacia/simple-steam-scraper?style=flat-square" alt="License"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/SeraphinaGlacia/steam-scraper?style=flat-square" alt="License"></a>
     <img src="https://img.shields.io/badge/python-3.8+-blue?style=flat-square&logo=python&logoColor=white" alt="Python Version">
-    <img src="https://img.shields.io/github/repo-size/SeraphinaGlacia/simple-steam-scraper?style=flat-square" alt="Repo Size">
+    <img src="https://img.shields.io/github/repo-size/SeraphinaGlacia/steam-scraper?style=flat-square" alt="Repo Size">
     <img src="https://img.shields.io/badge/arch-AsyncIO-green?style=flat-square" alt="Architecture">
   </p>
 
@@ -58,8 +58,8 @@
 确保你的 Python 版本 >= 3.8。
 
 ```bash
-git clone https://github.com/SeraphinaGlacia/simple-steam-scraper.git
-cd simple-steam-scraper
+git clone https://github.com/SeraphinaGlacia/steam-scraper.git
+cd steam-scraper
 pip install -r requirements.txt
 ```
 

@@ -192,7 +192,7 @@ def main() -> None:
     # 显示 Banner
     ui.print_panel(
         "[bold white]Simple Steam Scraper (AsyncIO)[/bold white]\n"
-        "[dim]github.com/SeraphinaGlacia/simple-steam-scraper[/dim]",
+        "[dim]github.com/SeraphinaGlacia/steam-scraper[/dim]",
         style="header",
     )
 
@@ -292,7 +292,7 @@ def run_start(ui: UIManager) -> None:
         "2. 运行 [cyan]python main.py games[/cyan] 抓取游戏基础数据。\n"
         "3. 运行 [cyan]python main.py reviews[/cyan] 抓取评价历史数据。\n"
         "4. 运行 [cyan]python main.py export[/cyan] 导出最终 Excel 报表。\n\n"
-        "[dim]项目地址: github.com/SeraphinaGlacia/simple-steam-scraper[/dim]",
+        "[dim]项目地址: github.com/SeraphinaGlacia/steam-scraper[/dim]",
         title="欢迎使用 Simple Steam Scraper",
         style="blue",
     )
