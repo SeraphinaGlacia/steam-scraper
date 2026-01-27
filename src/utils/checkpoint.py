@@ -244,7 +244,7 @@ class Checkpoint:
                     changed = True
 
             if changed:
-                self._save_atomic()
+                self._save_to_disk()
 
     def is_appid_failed(self, app_id: int, task_type: TaskType = "game") -> bool:
         """检查 app_id 是否已标记为失败（线程安全）。
