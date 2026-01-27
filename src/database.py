@@ -44,6 +44,11 @@ class DatabaseManager:
         """
         cursor = self.conn.cursor()
 
+        # 开启 WAL 模式 (Write-Ahead Logging)
+        # 1. 提高并发性能：读写操作不再相互阻塞
+        # 2. 提升写入速度：减少 fsync 次数
+        cursor.execute("PRAGMA journal_mode=WAL")
+
         # 创建游戏表
         cursor.execute(
             """
