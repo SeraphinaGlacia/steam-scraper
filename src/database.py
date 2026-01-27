@@ -5,9 +5,14 @@
 选择 SQLite 是因为它无需额外服务器，数据单文件存储，便于复制和分享。
 """
 
-from __future__ import annotations
-
-import json
+try:
+    import orjson
+    def json_dumps(obj):
+        return orjson.dumps(obj).decode("utf-8")
+except ImportError:
+    import json
+    def json_dumps(obj):
+        return json.dumps(obj, ensure_ascii=False)
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -43,6 +48,11 @@ class DatabaseManager:
         - reviews: 存储评价历史数据，使用 (app_id, date) 联合唯一约束
         """
         cursor = self.conn.cursor()
+
+        # 开启 WAL 模式 (Write-Ahead Logging)
+        # 1. 提高并发性能：读写操作不再相互阻塞
+        # 2. 提升写入速度：减少 fsync 次数
+        cursor.execute("PRAGMA journal_mode=WAL")
 
         # 创建游戏表
         cursor.execute(
@@ -92,9 +102,10 @@ class DatabaseManager:
         # 将列表转换为 JSON 字符串存储
         # 使用 JSON 而非逗号分隔，因为开发商/发行商名称本身可能包含逗号
         # ensure_ascii=False 保留中文字符的原始形式，提高可读性
-        developers_json = json.dumps(game.developers, ensure_ascii=False)
-        publishers_json = json.dumps(game.publishers, ensure_ascii=False)
-        genres_json = json.dumps(game.genres, ensure_ascii=False)
+        # 使用 helper 函数进行统一序列化
+        developers_json = json_dumps(game.developers)
+        publishers_json = json_dumps(game.publishers)
+        genres_json = json_dumps(game.genres)
 
         cursor.execute(
             """
@@ -112,6 +123,46 @@ class DatabaseManager:
                 genres_json,
                 game.description,
             ),
+        )
+        if commit:
+            self.conn.commit()
+
+    def save_games_batch(self, games: list[GameInfo], commit: bool = True) -> None:
+        """批量保存或更新游戏信息。
+
+        Args:
+            games: 游戏信息对象列表。
+            commit: 是否立即提交事务。默认为 True。
+        """
+        if not games:
+            return
+
+        cursor = self.conn.cursor()
+        
+        data = []
+        for game in games:
+            developers_json = json_dumps(game.developers)
+            publishers_json = json_dumps(game.publishers)
+            genres_json = json_dumps(game.genres)
+
+            data.append((
+                game.app_id,
+                game.name,
+                game.release_date,
+                game.price,
+                developers_json,
+                publishers_json,
+                genres_json,
+                game.description,
+            ))
+
+        cursor.executemany(
+            """
+            INSERT OR REPLACE INTO games 
+            (app_id, name, release_date, price, developers, publishers, genres, description, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            data,
         )
         if commit:
             self.conn.commit()
