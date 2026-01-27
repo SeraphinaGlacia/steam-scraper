@@ -375,7 +375,11 @@ async def run_games_scraper_async(
         ui_manager=ui,
         stop_event=stop_event,
     )
-    await scraper.run(max_pages=args.pages)
+
+    try:
+        await scraper.run(max_pages=args.pages)
+    finally:
+        checkpoint.save()
 
     ui.print_success(f"游戏信息爬取完成！数据已存入 [bold]{config.output.db_path}[/bold]")
 
@@ -426,18 +430,21 @@ async def run_reviews_scraper_async(
         stop_event=stop_event,
     )
 
-    if args.input:
-        await scraper.scrape_from_file(args.input)
-    else:
-        db = DatabaseManager(config.output.db_path)
-        app_ids = db.get_all_app_ids()
-        db.close()
+    try:
+        if args.input:
+            await scraper.scrape_from_file(args.input)
+        else:
+            db = DatabaseManager(config.output.db_path)
+            app_ids = db.get_all_app_ids()
+            db.close()
 
-        if not app_ids:
-            ui.print_warning("数据库中没有游戏数据，请先运行 'python main.py games'")
-            return
+            if not app_ids:
+                ui.print_warning("数据库中没有游戏数据，请先运行 'python main.py games'")
+                return
 
-        await scraper.scrape_from_list(app_ids)
+            await scraper.scrape_from_list(app_ids)
+    finally:
+        checkpoint.save()
 
     ui.print_success(f"评价数据爬取完成！数据已存入 [bold]{config.output.db_path}[/bold]")
 
@@ -467,56 +474,62 @@ async def run_all_async(
     if not args.resume:
         checkpoint.clear()
 
-    ui.print_panel("Step 1/3: 爬取游戏基础信息", style="blue")
-    game_scraper = GameScraper(
-        config=config,
-        checkpoint=checkpoint,
-        failure_manager=failure_manager,
-        ui_manager=ui,
-        stop_event=stop_event,
-    )
-    await game_scraper.run(max_pages=args.pages)
-
-    if stop_event.is_set():
-        return
-
-    # 检查 games 是否有失败记录
-    game_failures = _get_game_failures(failure_manager, checkpoint)
-    if game_failures:
-        ui.print_warning(
-            f"\n游戏爬取阶段有 {len(game_failures)} 个失败项目。\n"
-            "继续爬取 reviews 可能导致数据不完整。"
+    try:
+        ui.print_panel("Step 1/3: 爬取游戏基础信息", style="blue")
+        game_scraper = GameScraper(
+            config=config,
+            checkpoint=checkpoint,
+            failure_manager=failure_manager,
+            ui_manager=ui,
+            stop_event=stop_event,
         )
-        if not ui.confirm("是否继续爬取 reviews？（建议先处理失败项目）", default=True):
-            ui.print(
-                "已停止。请使用 [cyan]python main.py retry --type game[/cyan] 处理失败项目后重试。"
-            )
+        await game_scraper.run(max_pages=args.pages)
+        # 阶段性保存，防止Step 2崩溃导致Step 1进度丢失
+        checkpoint.save()
+
+        if stop_event.is_set():
             return
 
-    ui.print("\n")
-    ui.print_panel("Step 2/3: 爬取评价历史信息", style="blue")
-    app_ids = game_scraper.get_app_ids()
+        # 检查 games 是否有失败记录
+        game_failures = _get_game_failures(failure_manager, checkpoint)
+        if game_failures:
+            ui.print_warning(
+                f"\n游戏爬取阶段有 {len(game_failures)} 个失败项目。\n"
+                "继续爬取 reviews 可能导致数据不完整。"
+            )
+            if not ui.confirm("是否继续爬取 reviews？（建议先处理失败项目）", default=True):
+                ui.print(
+                    "已停止。请使用 [cyan]python main.py retry --type game[/cyan] 处理失败项目后重试。"
+                )
+                return
 
-    review_scraper = ReviewScraper(
-        config=config,
-        checkpoint=checkpoint,
-        failure_manager=failure_manager,
-        ui_manager=ui,
-        stop_event=stop_event,
-    )
-    await review_scraper.scrape_from_list(app_ids)
+        ui.print("\n")
+        ui.print_panel("Step 2/3: 爬取评价历史信息", style="blue")
+        app_ids = game_scraper.get_app_ids()
 
-    if stop_event.is_set():
-        return
+        review_scraper = ReviewScraper(
+            config=config,
+            checkpoint=checkpoint,
+            failure_manager=failure_manager,
+            ui_manager=ui,
+            stop_event=stop_event,
+        )
+        await review_scraper.scrape_from_list(app_ids)
+        checkpoint.save()
 
-    ui.print("\n")
-    ui.print_panel("Step 3/3: 导出数据", style="blue")
-    
-    # 同时导出 Excel 和 CSV 两种格式
-    await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/steam_data.xlsx", format="excel"), ui)
-    await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/", format="csv"), ui)
+        if stop_event.is_set():
+            return
 
-    ui.print_success("🎉 全部完成！Enjoy your data.")
+        ui.print("\n")
+        ui.print_panel("Step 3/3: 导出数据", style="blue")
+
+        # 同时导出 Excel 和 CSV 两种格式
+        await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/steam_data.xlsx", format="excel"), ui)
+        await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/", format="csv"), ui)
+
+        ui.print_success("🎉 全部完成！Enjoy your data.")
+    finally:
+        checkpoint.save()
 
 
 def run_all(
@@ -642,37 +655,40 @@ async def run_retry_async(
     retry_count = 0
     success_count = 0
 
-    with ui.create_progress() as progress:
-        task = progress.add_task("重试中...", total=len(failures))
+    try:
+        with ui.create_progress() as progress:
+            task = progress.add_task("重试中...", total=len(failures))
 
-        for failure in failures:
-            item_type = failure["type"]
-            item_id = int(failure["id"])
+            for failure in failures:
+                item_type = failure["type"]
+                item_id = int(failure["id"])
 
-            if args.type != "all" and item_type != args.type:
+                if args.type != "all" and item_type != args.type:
+                    progress.update(task, advance=1)
+                    continue
+
+                retry_count += 1
+                is_success = False
+
+                try:
+                    if item_type == "game":
+                        info, _ = await game_scraper.process_game(item_id, force=True)
+                        if info:
+                            is_success = True
+                    elif item_type == "review":
+                        reviews, _ = await review_scraper.scrape_reviews(item_id, force=True)
+                        if reviews:
+                            is_success = True
+                except Exception:
+                    pass
+
+                if is_success:
+                    failure_manager.remove_failure(item_type, item_id)
+                    success_count += 1
+
                 progress.update(task, advance=1)
-                continue
-
-            retry_count += 1
-            is_success = False
-
-            try:
-                if item_type == "game":
-                    info, _ = await game_scraper.process_game(item_id, force=True)
-                    if info:
-                        is_success = True
-                elif item_type == "review":
-                    reviews, _ = await review_scraper.scrape_reviews(item_id, force=True)
-                    if reviews:
-                        is_success = True
-            except Exception:
-                pass
-
-            if is_success:
-                failure_manager.remove_failure(item_type, item_id)
-                success_count += 1
-
-            progress.update(task, advance=1)
+    finally:
+        checkpoint.save()
     
     # 最后关闭客户端连接
     await game_scraper.client.close()

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -47,15 +48,19 @@ class Checkpoint:
         self,
         path: Optional[str | Path] = None,
         config: Optional[Config] = None,
+        save_interval: float = 5.0,
     ):
         """初始化断点管理器。
 
         Args:
             path: 可选的断点文件路径。如果未指定，将从配置中读取默认路径。
             config: 可选的配置对象。如果未指定，将使用全局配置。
+            save_interval: 自动保存的时间间隔（秒）。默认 5 秒。
         """
         self.config = config or get_config()
         self._lock = threading.Lock()
+        self.save_interval = save_interval
+        self._last_save_time = 0.0
 
         if path:
             self.path = Path(path)
@@ -107,7 +112,7 @@ class Checkpoint:
 
         return default
 
-    def _save_atomic(self) -> None:
+    def _save_to_disk(self) -> None:
         """原子保存断点状态到文件。
 
         使用先写临时文件再重命名的方式，确保写入过程中断电或崩溃不会损坏原文件。
@@ -123,11 +128,24 @@ class Checkpoint:
             json.dump(self.state, f, indent=2, ensure_ascii=False)
 
         os.replace(tmp_path, self.path)
+        self._last_save_time = time.time()
+
+    def _request_save(self) -> None:
+        """请求保存断点状态。
+
+        如果距离上次保存的时间超过 save_interval，则执行保存。
+        此方法应在持有 _lock 的情况下调用。
+        """
+        if time.time() - self._last_save_time >= self.save_interval:
+            self._save_to_disk()
 
     def save(self) -> None:
-        """保存断点状态到文件（线程安全）。"""
+        """保存断点状态到文件（线程安全）。
+
+        强制立即保存，忽略 save_interval。
+        """
         with self._lock:
-            self._save_atomic()
+            self._save_to_disk()
 
     # ========== 状态键映射 ==========
 
@@ -160,7 +178,7 @@ class Checkpoint:
             return page in self.state["completed_pages"]
 
     def mark_page_completed(self, page: int) -> None:
-        """标记页面为已完成并立即保存（线程安全）。
+        """标记页面为已完成并尝试保存（线程安全）。
 
         Args:
             page: 页码（从 1 开始）。
@@ -168,7 +186,7 @@ class Checkpoint:
         with self._lock:
             if page not in self.state["completed_pages"]:
                 self.state["completed_pages"].append(page)
-                self._save_atomic()
+                self._request_save()
 
     # ========== AppID 状态（支持 game/review）==========
 
@@ -187,7 +205,7 @@ class Checkpoint:
             return app_id in self.state[completed_key]
 
     def mark_appid_completed(self, app_id: int, task_type: TaskType = "game") -> None:
-        """标记 app_id 为已完成并立即保存（线程安全）。
+        """标记 app_id 为已完成并尝试保存（线程安全）。
 
         成功时会自动从对应的失败列表中移除（如果存在）。
 
@@ -201,7 +219,7 @@ class Checkpoint:
                 self.state[completed_key].append(app_id)
                 if app_id in self.state[failed_key]:
                     self.state[failed_key].remove(app_id)
-                self._save_atomic()
+                self._request_save()
 
     def is_appid_failed(self, app_id: int, task_type: TaskType = "game") -> bool:
         """检查 app_id 是否已标记为失败（线程安全）。
@@ -218,7 +236,7 @@ class Checkpoint:
             return app_id in self.state[failed_key]
 
     def mark_appid_failed(self, app_id: int, task_type: TaskType = "game") -> None:
-        """标记 app_id 为失败并立即保存（线程安全）。
+        """标记 app_id 为失败并尝试保存（线程安全）。
 
         已完成的 AppID 不会被标记为失败。
 
@@ -232,7 +250,7 @@ class Checkpoint:
                 return
             if app_id not in self.state[failed_key]:
                 self.state[failed_key].append(app_id)
-                self._save_atomic()
+                self._request_save()
 
     def get_failed_appids(self, task_type: TaskType = "game") -> list[int]:
         """获取所有失败的 app_id 列表（线程安全）。
@@ -274,6 +292,7 @@ class Checkpoint:
         """清除指定任务类型的断点状态（线程安全）。
 
         只清除 game 或 review 的状态，不影响其他类型。
+        立即保存更改。
 
         Args:
             task_type: 任务类型，"game" 或 "review"。
@@ -284,5 +303,4 @@ class Checkpoint:
             self.state[failed_key] = []
             if task_type == "game":
                 self.state["completed_pages"] = []
-            self._save_atomic()
-
+            self._save_to_disk()
