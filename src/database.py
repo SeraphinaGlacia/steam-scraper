@@ -114,18 +114,21 @@ class DatabaseManager:
         )
         self.conn.commit()
 
-    def save_reviews(self, app_id: int, reviews: list[ReviewSnapshot]) -> None:
+    def save_reviews(
+        self, app_id: int, reviews: list[ReviewSnapshot], commit: bool = True
+    ) -> None:
         """保存评价历史数据。
 
         Args:
             app_id: 游戏 ID。
             reviews: 评价快照列表。
+            commit: 是否立即提交事务。默认为 True。
         """
         if not reviews:
             return
 
         cursor = self.conn.cursor()
-        
+
         data = [
             (
                 app_id,
@@ -144,6 +147,11 @@ class DatabaseManager:
             """,
             data,
         )
+        if commit:
+            self.conn.commit()
+
+    def commit(self) -> None:
+        """手动提交当前事务。"""
         self.conn.commit()
 
     def get_all_app_ids(self) -> list[int]:

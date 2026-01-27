@@ -203,6 +203,31 @@ class Checkpoint:
                     self.state[failed_key].remove(app_id)
                 self._save_atomic()
 
+    def mark_appids_completed(
+        self, app_ids: list[int], task_type: TaskType = "game"
+    ) -> None:
+        """批量标记多个 app_id 为已完成并立即保存（线程安全）。
+
+        比循环调用 mark_appid_completed 更高效，因为只进行一次文件写入。
+
+        Args:
+            app_ids: Steam 游戏 ID 列表。
+            task_type: 任务类型，"game" 或 "review"。
+        """
+        completed_key, failed_key = self._get_keys(task_type)
+        with self._lock:
+            changed = False
+            for app_id in app_ids:
+                if app_id not in self.state[completed_key]:
+                    self.state[completed_key].append(app_id)
+                    changed = True
+                if app_id in self.state[failed_key]:
+                    self.state[failed_key].remove(app_id)
+                    changed = True
+
+            if changed:
+                self._save_atomic()
+
     def is_appid_failed(self, app_id: int, task_type: TaskType = "game") -> bool:
         """检查 app_id 是否已标记为失败（线程安全）。
 

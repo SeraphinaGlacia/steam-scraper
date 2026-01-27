@@ -62,13 +62,14 @@ class ReviewScraper:
         self.stop_event = stop_event
 
     async def scrape_reviews(
-        self, app_id: int, force: bool = False
+        self, app_id: int, force: bool = False, commit_db: bool = True
     ) -> tuple[list[ReviewSnapshot], bool]:
         """爬取指定游戏的评价历史数据并保存。
 
         Args:
             app_id (int): Steam 游戏 ID。
             force (bool): 强制模式，跳过失败标记检查（用于 retry 场景）。默认为 False。
+            commit_db (bool): 是否立即提交数据库事务和更新断点。默认为 True。
 
         Returns:
             tuple[list[ReviewSnapshot], bool]: (评价快照列表, 是否跳过重复)
@@ -112,8 +113,8 @@ class ReviewScraper:
 
             # 保存到数据库
             if reviews:
-                self.db.save_reviews(app_id, reviews)
-                if self.checkpoint:
+                self.db.save_reviews(app_id, reviews, commit=commit_db)
+                if commit_db and self.checkpoint:
                     self.checkpoint.mark_appid_completed(app_id, "review")
 
         except Exception as e:
@@ -188,6 +189,9 @@ class ReviewScraper:
 
         # 使用信号量限制并发数
         semaphore = asyncio.Semaphore(self.config.scraper.max_workers)
+        # 批量提交的缓冲区
+        pending_app_ids: list[int] = []
+        BATCH_SIZE = 50
 
         async def limited_scrape(app_id: int) -> tuple[int, list[ReviewSnapshot]]:
             """带并发限制的评价爬取函数。
@@ -203,7 +207,8 @@ class ReviewScraper:
                 if self.stop_event and self.stop_event.is_set():
                     return app_id, []
                 # 不再需要 skipped 返回值，因为断点跳过已在外层处理
-                result, _ = await self.scrape_reviews(app_id)
+                # 使用 commit_db=False 实现批量提交
+                result, _ = await self.scrape_reviews(app_id, commit_db=False)
                 return app_id, result
 
         with self.ui.create_progress() as progress:
@@ -215,11 +220,29 @@ class ReviewScraper:
             # 使用 asyncio.as_completed 实现实时进度更新
             for future in asyncio.as_completed(tasks):
                 try:
-                    await future
+                    app_id, reviews = await future
+
+                    # 如果成功爬取到数据，加入待提交列表
+                    if reviews:
+                        pending_app_ids.append(app_id)
+
+                    # 批量提交逻辑
+                    if len(pending_app_ids) >= BATCH_SIZE:
+                        self.db.commit()
+                        if self.checkpoint:
+                            self.checkpoint.mark_appids_completed(pending_app_ids, "review")
+                        pending_app_ids = []
+
                 except Exception as e:
                     self.ui.print_error(f"处理评价异常: {e}")
                 finally:
                     progress.update(task, advance=1)
+
+            # 处理剩余的未提交数据
+            if pending_app_ids:
+                self.db.commit()
+                if self.checkpoint:
+                    self.checkpoint.mark_appids_completed(pending_app_ids, "review")
 
         # 输出跳过的重复 AppID 汇总（只汇报本轮内动态重复）
         if skipped_appids:
