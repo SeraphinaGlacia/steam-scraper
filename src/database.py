@@ -112,6 +112,9 @@ class DatabaseManager:
                 game.description,
             ),
         )
+
+    def commit(self) -> None:
+        """提交当前事务。"""
         self.conn.commit()
 
     def save_reviews(self, app_id: int, reviews: list[ReviewSnapshot]) -> None:

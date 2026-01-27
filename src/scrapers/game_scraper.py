@@ -330,6 +330,9 @@ class GameScraper:
                 if self.checkpoint:
                     self.checkpoint.mark_page_completed(page)
 
+                # 每处理完一页提交一次数据库，减少 IO 开销
+                self.db.commit()
+
         # 输出跳过的重复 AppID 汇总
         if skipped_appids:
             self.ui.print_warning(
@@ -339,6 +342,9 @@ class GameScraper:
         # 关闭 HTTP 客户端释放资源
         await self.client.close()
         
+        # 确保所有剩余数据已提交
+        self.db.commit()
+
         # 最终不再返回 GameInfo 对象列表，而是 AppID 列表，因为数据已入库
         return all_app_ids
 
