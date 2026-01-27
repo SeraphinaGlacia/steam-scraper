@@ -3,7 +3,7 @@
     <img src="assets/demo.svg" alt="Terminal Demo" width="600">
   </p>
 
-  <h1>Simple Steam Scraper</h1>
+  <h1>Steam Scraper</h1>
   <p>
     <strong>A simple, efficient, and visual Steam review data scraper. Plug and play.</strong>
   </p>
