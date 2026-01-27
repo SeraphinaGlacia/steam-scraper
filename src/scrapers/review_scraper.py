@@ -113,7 +113,7 @@ class ReviewScraper:
 
             # 保存到数据库
             if reviews:
-                self.db.save_reviews(app_id, reviews, commit=commit_db)
+                await asyncio.to_thread(self.db.save_reviews, app_id, reviews, commit=commit_db)
                 if commit_db and self.checkpoint:
                     self.checkpoint.mark_appid_completed(app_id, "review")
 

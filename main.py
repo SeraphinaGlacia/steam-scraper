@@ -29,6 +29,12 @@ from src.utils.checkpoint import Checkpoint
 from src.utils.failure_manager import FailureManager
 from src.utils.ui import UIManager
 
+try:
+    import uvloop
+    uvloop.install()
+except ImportError:
+    pass
+
 
 def main() -> None:
     """主入口函数。"""
