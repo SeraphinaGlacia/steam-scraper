@@ -103,15 +103,18 @@ class Checkpoint:
             try:
                 with open(self.path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
-                    current_state = {}
+                    # 保留加载的所有数据，避免丢失未来版本可能添加的键
+                    current_state = loaded.copy()
                     
-                    # 合并：保留已有数据，补充缺失的键
-                    for key in default:
-                        if key in loaded:
-                            # 转换为 set
-                            current_state[key] = set(loaded[key])
+                    # 仅处理已知的集合字段：将列表转换为集合
+                    for key, default_val in default.items():
+                        if key in current_state:
+                            # 确保只转换集合类型的字段
+                            if isinstance(default_val, set):
+                                current_state[key] = set(current_state[key])
                         else:
-                            current_state[key] = default[key]
+                            # 补齐当前版本的新增字段
+                            current_state[key] = default_val
                     return current_state
             except (json.JSONDecodeError, IOError):
                 pass
@@ -131,10 +134,13 @@ class Checkpoint:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self.path.with_suffix(".tmp")
 
-        # 转换为列表进行序列化
-        serializable_state = {
-            k: list(v) for k, v in self.state.items()
-        }
+        # 转换为列表进行序列化（仅转换集合类型）
+        serializable_state = {}
+        for k, v in self.state.items():
+            if isinstance(v, set):
+                serializable_state[k] = list(v)
+            else:
+                serializable_state[k] = v
 
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(serializable_state, f, indent=2, ensure_ascii=False)
