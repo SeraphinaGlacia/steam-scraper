@@ -76,7 +76,7 @@ class GameScraper:
 
         try:
             response = await self.client.get(self.base_url, params=params, delay=False)
-            soup = BeautifulSoup(response.text, "html.parser")
+            soup = await asyncio.to_thread(BeautifulSoup, response.text, "html.parser")
 
             search_results = soup.find("div", {"class": "search_pagination_left"})
             if search_results:
@@ -151,7 +151,7 @@ class GameScraper:
 
         try:
             response = await self.client.get(self.base_url, params=params, delay=False)
-            soup = BeautifulSoup(response.text, "html.parser")
+            soup = await asyncio.to_thread(BeautifulSoup, response.text, "html.parser")
 
             games = soup.find_all("a", {"class": "search_result_row"})
 
