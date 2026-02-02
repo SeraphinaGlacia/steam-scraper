@@ -13,6 +13,8 @@ import shutil
 import signal
 import sys
 import threading
+import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -382,17 +384,21 @@ async def run_games_scraper_async(
         stop_event=stop_event,
     )
 
+    start_time = time.time()
     try:
         await scraper.run(max_pages=args.pages)
     finally:
         checkpoint.save()
+
+    elapsed = time.time() - start_time
+    duration = str(timedelta(seconds=int(elapsed)))
 
     # 统一路径显示格式
     db_path = str(config.output.db_path)
     if not db_path.startswith("./") and not db_path.startswith("/"):
         db_path = f"./{db_path}"
 
-    ui.print_success(f"游戏信息爬取完成！数据已存入: [bold]{db_path}[/bold]")
+    ui.print_success(f"游戏信息爬取完成！数据已存入: [bold]{db_path}[/bold] (耗时: {duration})")
 
 
 def run_games_scraper(
@@ -441,6 +447,7 @@ async def run_reviews_scraper_async(
         stop_event=stop_event,
     )
 
+    start_time = time.time()
     try:
         if args.input:
             await scraper.scrape_from_file(args.input)
@@ -457,12 +464,15 @@ async def run_reviews_scraper_async(
     finally:
         checkpoint.save()
 
+    elapsed = time.time() - start_time
+    duration = str(timedelta(seconds=int(elapsed)))
+
     # 统一路径显示格式
     db_path = str(config.output.db_path)
     if not db_path.startswith("./") and not db_path.startswith("/"):
         db_path = f"./{db_path}"
 
-    ui.print_success(f"评价数据爬取完成！数据已存入: [bold]{db_path}[/bold]")
+    ui.print_success(f"评价数据爬取完成！数据已存入: [bold]{db_path}[/bold] (耗时: {duration})")
 
 
 def run_reviews_scraper(
@@ -490,6 +500,7 @@ async def run_all_async(
     if not args.resume:
         checkpoint.clear()
 
+    start_time = time.time()
     try:
         ui.print_panel("Step 1/3: 爬取游戏基础信息", style="blue")
         game_scraper = GameScraper(
@@ -556,7 +567,9 @@ async def run_all_async(
         await asyncio.to_thread(run_export, config, argparse.Namespace(output=None, format="excel"), ui)
         await asyncio.to_thread(run_export, config, argparse.Namespace(output=None, format="csv"), ui)
 
-        ui.print_success("🎉 全部完成！Enjoy your data.")
+        elapsed = time.time() - start_time
+        duration = str(timedelta(seconds=int(elapsed)))
+        ui.print_success(f"🎉 全部完成！Enjoy your data. (总耗时: {duration})")
     finally:
         checkpoint.save()
 
