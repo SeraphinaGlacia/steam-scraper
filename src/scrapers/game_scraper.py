@@ -265,7 +265,7 @@ class GameScraper:
         # 统计数据
         # 统计数据
         seen_appids: set[int] = set()
-        skipped_appids: list[int] = []  # 收集跳过的重复 AppID
+        skipped_appids: list[int] = []  # 收集跳过的 AppID (重复或已完成)
         all_app_ids: list[int] = []
         
         # 1. 生产者任务：扫描页面
@@ -299,6 +299,7 @@ class GameScraper:
                     seen_appids.add(app_id)
                     # 如果已经在 checkpoint 中完成，则不加入队列（完全跳过）
                     if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
+                        skipped_appids.append(app_id)
                         continue
                     
                     await id_queue.put(app_id)
@@ -445,10 +446,10 @@ class GameScraper:
         await self.client.close()
         self.db.commit()
         
-        # 输出跳过的重复 AppID 汇总
+        # 输出跳过的 AppID 汇总 (包括重复项和已完成项)
         if skipped_appids:
             self.ui.print_warning(
-                f"跳过 {len(skipped_appids)} 个重复 AppID (本轮内重复): {skipped_appids}"
+                f"跳过 {len(skipped_appids)} 个 AppID (重复出现或已完成): {skipped_appids}"
             )
         
         return all_app_ids
