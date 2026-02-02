@@ -13,6 +13,9 @@ except ImportError:
     import json
     def json_dumps(obj):
         return json.dumps(obj, ensure_ascii=False)
+
+# 无论是否使用 orjson，导出逻辑中都使用了 json.loads，所以必须导入 json 模块
+import json
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -286,7 +289,6 @@ class DatabaseManager:
         games_file = output_dir / "steam_games.csv"
         # 使用 utf-8-sig 编码，确保 Excel 打开时中文不乱码
         games_df.to_csv(games_file, index=False, encoding="utf-8-sig")
-        print(f"Games data exported to: {games_file}")
 
         # 2. 导出 Reviews
         reviews_df = pd.read_sql_query(
@@ -300,7 +302,6 @@ class DatabaseManager:
         )
         reviews_file = output_dir / "steam_reviews.csv"
         reviews_df.to_csv(reviews_file, index=False, encoding="utf-8-sig")
-        print(f"Reviews data exported to: {reviews_file}")
 
     def close(self) -> None:
         """关闭数据库连接。"""

@@ -145,8 +145,8 @@ def main() -> None:
     export_parser.add_argument(
         "--output",
         type=str,
-        default="data/steam_data.xlsx",
-        help="输出文件名（默认：data/steam_data.xlsx）。如果导出 CSV，此参数将被视为输出目录（默认：data/）",
+        default=None,
+        help="输出文件名。默认值将根据 config.yaml 中的 data_dir 动态生成。",
     )
     export_parser.add_argument(
         "--format",
@@ -387,7 +387,12 @@ async def run_games_scraper_async(
     finally:
         checkpoint.save()
 
-    ui.print_success(f"游戏信息爬取完成！数据已存入 [bold]{config.output.db_path}[/bold]")
+    # 统一路径显示格式
+    db_path = str(config.output.db_path)
+    if not db_path.startswith("./") and not db_path.startswith("/"):
+        db_path = f"./{db_path}"
+
+    ui.print_success(f"游戏信息爬取完成！数据已存入: [bold]{db_path}[/bold]")
 
 
 def run_games_scraper(
@@ -452,7 +457,12 @@ async def run_reviews_scraper_async(
     finally:
         checkpoint.save()
 
-    ui.print_success(f"评价数据爬取完成！数据已存入 [bold]{config.output.db_path}[/bold]")
+    # 统一路径显示格式
+    db_path = str(config.output.db_path)
+    if not db_path.startswith("./") and not db_path.startswith("/"):
+        db_path = f"./{db_path}"
+
+    ui.print_success(f"评价数据爬取完成！数据已存入: [bold]{db_path}[/bold]")
 
 
 def run_reviews_scraper(
@@ -492,6 +502,12 @@ async def run_all_async(
         await game_scraper.run(max_pages=args.pages)
         # 阶段性保存，防止Step 2崩溃导致Step 1进度丢失
         checkpoint.save()
+        
+        # 统一路径显示格式
+        db_path = str(config.output.db_path)
+        if not db_path.startswith("./") and not db_path.startswith("/"):
+            db_path = f"./{db_path}"
+        ui.print_success(f"游戏信息爬取完成！数据已存入: [bold]{db_path}[/bold]")
 
         if stop_event.is_set():
             return
@@ -522,6 +538,12 @@ async def run_all_async(
         )
         await review_scraper.scrape_from_list(app_ids)
         checkpoint.save()
+        
+        # 统一路径显示格式
+        db_path = str(config.output.db_path)
+        if not db_path.startswith("./") and not db_path.startswith("/"):
+            db_path = f"./{db_path}"
+        ui.print_success(f"评价数据爬取完成！数据已存入: [bold]{db_path}[/bold]")
 
         if stop_event.is_set():
             return
@@ -530,8 +552,9 @@ async def run_all_async(
         ui.print_panel("Step 3/3: 导出数据", style="blue")
 
         # 同时导出 Excel 和 CSV 两种格式
-        await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/steam_data.xlsx", format="excel"), ui)
-        await asyncio.to_thread(run_export, config, argparse.Namespace(output="data/", format="csv"), ui)
+        # 使用 None 作为 output，让 run_export 内部根据 config 动态生成默认路径
+        await asyncio.to_thread(run_export, config, argparse.Namespace(output=None, format="excel"), ui)
+        await asyncio.to_thread(run_export, config, argparse.Namespace(output=None, format="csv"), ui)
 
         ui.print_success("🎉 全部完成！Enjoy your data.")
     finally:
@@ -568,21 +591,34 @@ def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> None:
             
             if args.format == "csv":
                 # CSV 模式下，args.output 被视为目录
-                # 如果用户没有指定 output，默认为 data/steam_data.xlsx，我们需要取其目录
-                # 但更合理的默认值应该是 data/
-                output_path = Path(args.output)
-                if output_path.suffix == ".xlsx":
-                     # 如果用户没改默认值，或者即使改了还是xlsx后缀，我们取其父目录
-                    output_dir = output_path.parent
+                if args.output:
+                    output_dir = Path(args.output)
                 else:
-                    output_dir = output_path
+                    # 默认使用 config 中的 data_dir
+                    output_dir = Path(config.output.data_dir)
                 
-                db.export_to_csv(output_dir)
-                ui.print_success(f"导出成功！文件位于: [bold]{output_dir}[/bold]")
+                # 格式化路径显示
+                path_str = str(output_dir)
+                if not path_str.startswith("./") and not path_str.startswith("/"):
+                    path_str = f"./{path_str}"
+                
+                ui.print_success(f"导出成功！文件保存在: [bold]{path_str}/steam_games.csv[/bold] & [bold]{path_str}/steam_reviews.csv[/bold]")
             else:
                 # Excel 模式
-                db.export_to_excel(args.output)
-                ui.print_success(f"导出成功！文件: [bold]{args.output}[/bold]")
+                if args.output:
+                    output_file = args.output
+                else:
+                    # 默认: {data_dir}/steam_data.xlsx
+                    output_file = Path(config.output.data_dir) / "steam_data.xlsx"
+                    
+                db.export_to_excel(output_file)
+                
+                # 格式化路径显示
+                path_str = str(output_file)
+                if not path_str.startswith("./") and not path_str.startswith("/"):
+                    path_str = f"./{path_str}"
+
+                ui.print_success(f"导出成功！文件保存在: [bold]{path_str}[/bold]")
                 
             progress.update(task, completed=100)
 
