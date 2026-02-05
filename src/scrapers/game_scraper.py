@@ -136,6 +136,45 @@ class GameScraper:
 
         return None
 
+    async def get_game_details_batch(
+        self, app_ids: list[int]
+    ) -> dict[int, Optional[GameInfo]]:
+        """并发获取多个游戏的详细信息。
+
+        由于 Steam appdetails API 不支持多 AppID 批量查询，
+        此方法使用 asyncio.gather 并发发起多个单独请求，
+        仍能显著减少总耗时（相比串行请求）。
+
+        Args:
+            app_ids: Steam 游戏 ID 列表。
+
+        Returns:
+            dict[int, Optional[GameInfo]]: AppID 到游戏信息的映射。
+                成功的 AppID 对应 GameInfo 对象，失败的对应 None。
+        """
+        if not app_ids:
+            return {}
+
+        async def fetch_single(app_id: int) -> tuple[int, Optional[GameInfo]]:
+            """获取单个游戏详情的内部函数。"""
+            result = await self.get_game_details(app_id)
+            return app_id, result
+
+        # 并发执行所有请求
+        tasks = [fetch_single(app_id) for app_id in app_ids]
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        results: dict[int, Optional[GameInfo]] = {}
+        for i, result in enumerate(results_list):
+            app_id = app_ids[i]
+            if isinstance(result, Exception):
+                self.ui.print_error(f"获取游戏 {app_id} 详情异常: {result}")
+                results[app_id] = None
+            else:
+                results[app_id] = result[1]  # result is (app_id, game_info)
+
+        return results
+
     async def scrape_page_games(self, page: int) -> list[int]:
         """爬取指定页面的游戏 AppID 列表。
 
@@ -322,33 +361,68 @@ class GameScraper:
             # 或者更简单的：Producer 结束后，等待 Queue join
             pass
 
-        # 2. 消费者任务：处理游戏
+        # 2. 消费者任务：批量处理游戏
+        BATCH_SIZE = 10  # 每批处理的 AppID 数量
+        
         async def worker() -> None:
-            """处理游戏详情任务。
+            """批量处理游戏详情任务。
             
-            从队列获取 AppID，爬取详情，并将结果发送给 Committer。
+            从队列批量获取 AppID，使用批量 API 一次性获取详情，
+            然后将结果发送给 Committer。相比逐个处理，显著减少 HTTP 往返。
             """
             while True:
-                app_id = await id_queue.get()
+                batch: list[int] = []
+                
+                # 尝试收集一批 AppID
                 try:
-                    if self.stop_event and self.stop_event.is_set():
+                    # 等待第一个 AppID（阻塞等待）
+                    first_id = await id_queue.get()
+                    batch.append(first_id)
+                    
+                    # 尝试立即获取更多（非阻塞）
+                    while len(batch) < BATCH_SIZE:
+                        try:
+                            app_id = id_queue.get_nowait()
+                            batch.append(app_id)
+                        except asyncio.QueueEmpty:
+                            break
+                            
+                except asyncio.CancelledError:
+                    # Worker 被取消，处理剩余的 batch
+                    if batch:
+                        for _ in batch:
+                            id_queue.task_done()
+                    raise
+                
+                # 检查停止信号
+                if self.stop_event and self.stop_event.is_set():
+                    for _ in batch:
                         id_queue.task_done()
-                        continue
+                    continue
+                
+                try:
+                    # 批量获取详情
+                    results = await self.get_game_details_batch(batch)
+                    
+                    # 将每个结果放入结果队列
+                    for app_id in batch:
+                        game_info = results.get(app_id)
+                        # 检查是否跳过（已在 checkpoint 中完成）
+                        skipped = False
+                        if self.checkpoint and self.checkpoint.is_appid_completed(app_id):
+                            skipped = True
+                        await result_queue.put((app_id, game_info, skipped))
                         
-                    # 核心处理逻辑
-                    # commit_db=False, save_to_db=False (结果交给 Committer 处理)
-                    game_info, skipped = await self.process_game(
-                        app_id, commit_db=False, save_to_db=False
-                    )
-                    
-                    # 将结果放入结果队列
-                    await result_queue.put((app_id, game_info, skipped))
-                    
                 except Exception as e:
-                    self.ui.print_error(f"Worker Error {app_id}: {e}")
+                    self.ui.print_error(f"Batch Worker Error: {e}")
+                    # 所有 batch 中的 ID 都标记为失败
+                    for app_id in batch:
+                        await result_queue.put((app_id, None, False))
                 finally:
-                    id_queue.task_done()
-                    progress.update(game_task, advance=1)
+                    for _ in batch:
+                        id_queue.task_done()
+                    progress.update(game_task, advance=len(batch))
+
 
         # 3. 提交者任务：批量写入
         async def committer() -> None:
