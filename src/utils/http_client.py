@@ -28,26 +28,99 @@ except ImportError:
 from src.config import Config, get_config
 
 
+class TokenBucketRateLimiter:
+    """令牌桶限速器，用于全局频率控制。
+
+    令牌桶算法允许短时间内的突发请求，同时限制长期平均速率。
+    当遇到 429 响应时，可动态降低速率（熔断）。
+
+    Attributes:
+        rate: 每秒生成的令牌数（请求速率）。
+        capacity: 桶的最大容量（允许的最大突发量）。
+        tokens: 当前可用令牌数。
+        last_update: 上次更新令牌的时间戳。
+        _lock: 异步锁，确保线程安全。
+    """
+
+    def __init__(self, rate: float = 5.0, capacity: float = 10.0):
+        """初始化令牌桶限速器。
+
+        Args:
+            rate: 每秒生成的令牌数，默认 5.0（即每秒最多 5 个请求）。
+            capacity: 桶的最大容量，默认 10.0。
+        """
+        self.rate = rate
+        self.capacity = capacity
+        self.tokens = capacity
+        self.last_update = time.monotonic()
+        self._lock = asyncio.Lock()
+        self._base_rate = rate  # 记录初始速率，用于恢复
+
+    async def acquire(self) -> None:
+        """获取一个令牌，如果没有可用令牌则等待。
+
+        此方法会阻塞直到有令牌可用。
+        """
+        async with self._lock:
+            now = time.monotonic()
+            # 补充令牌
+            elapsed = now - self.last_update
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+            self.last_update = now
+
+            if self.tokens < 1:
+                # 计算需要等待的时间
+                wait_time = (1 - self.tokens) / self.rate
+                await asyncio.sleep(wait_time)
+                self.tokens = 0
+            else:
+                self.tokens -= 1
+
+    def throttle(self, factor: float = 0.5) -> None:
+        """降低速率（熔断）。
+
+        当遇到 429 响应时调用此方法，将速率降低指定倍数。
+
+        Args:
+            factor: 速率降低因子，默认 0.5（降至一半）。
+        """
+        self.rate = max(0.5, self.rate * factor)  # 最低 0.5 req/s
+
+    def recover(self, factor: float = 1.2) -> None:
+        """恢复速率。
+
+        当请求成功时逐步恢复速率。
+
+        Args:
+            factor: 速率恢复因子，默认 1.2（增加 20%）。
+        """
+        self.rate = min(self._base_rate, self.rate * factor)
+
+
 class AsyncHttpClient:
-    """异步 HTTP 客户端，支持重试和速率限制。
+    """异步 HTTP 客户端，支持重试、速率限制和熔断机制。
 
     基于 httpx.AsyncClient 实现，提供真正的非阻塞并发请求能力。
-    推荐在所有爬虫类中使用此客户端替代同步版本。
+    集成令牌桶限速器，当遇到 429 响应时自动降低请求速率。
 
     Attributes:
         config: 配置对象。
         _client: httpx 异步客户端实例（延迟初始化）。
+        rate_limiter: 全局频率控制器。
     """
 
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Optional[Config] = None, rate_limiter: Optional[TokenBucketRateLimiter] = None):
         """初始化异步 HTTP 客户端。
 
         Args:
             config: 可选的配置对象，如果不提供则使用全局配置。
+            rate_limiter: 可选的限速器，如果不提供则创建默认实例。
         """
         self.config = config or get_config()
         # 延迟初始化客户端，因为 AsyncClient 需要在异步上下文中使用
         self._client: Optional[httpx.AsyncClient] = None
+        # 全局频率控制器（默认每秒 5 个请求，突发容量 10）
+        self.rate_limiter = rate_limiter or TokenBucketRateLimiter(rate=5.0, capacity=10.0)
 
     async def _get_client(self) -> httpx.AsyncClient:
         """获取或创建 httpx 异步客户端。
@@ -96,6 +169,9 @@ class AsyncHttpClient:
             httpx.HTTPStatusError: HTTP 状态码错误（4xx/5xx）。
             httpx.RequestError: 请求失败且重试次数耗尽时抛出。
         """
+        # 在发起请求前获取令牌（限速）
+        await self.rate_limiter.acquire()
+        
         client = await self._get_client()
         last_exception: Optional[Exception] = None
 
@@ -104,18 +180,43 @@ class AsyncHttpClient:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
 
+                # 请求成功，尝试恢复速率
+                self.rate_limiter.recover()
+                
                 # 请求成功后添加延迟，避免请求过快触发限流
                 if delay:
                     await self._delay()
 
                 return response
 
-            except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            except httpx.HTTPStatusError as e:
+                last_exception = e
+                
+                # 特殊处理 429 Too Many Requests - 触发熔断
+                if e.response.status_code == 429:
+                    self.rate_limiter.throttle()
+                    # 429 时使用更长的等待时间
+                    retry_after = int(e.response.headers.get("Retry-After", 10))
+                    wait_time = retry_after + random.uniform(0, 2)
+                    print(
+                        f"⚠️  触发限流 (429)，降低速率并等待 {wait_time:.1f}s "
+                        f"(当前速率: {self.rate_limiter.rate:.1f} req/s)"
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                
+                if attempt < self.config.http.max_retries:
+                    # 指数退避策略
+                    wait_time = (2**attempt) + random.uniform(0, 1)
+                    print(
+                        f"请求失败，{wait_time:.1f} 秒后重试 "
+                        f"({attempt + 1}/{self.config.http.max_retries}): {e}"
+                    )
+                    await asyncio.sleep(wait_time)
+                    
+            except httpx.RequestError as e:
                 last_exception = e
                 if attempt < self.config.http.max_retries:
-                    # 指数退避策略：等待时间 = 2^attempt + 随机抖动
-                    # 这样做可以防止所有客户端在同一时间重试（雷鸣群问题）
-                    # 并给服务器足够的恢复时间
                     wait_time = (2**attempt) + random.uniform(0, 1)
                     print(
                         f"请求失败，{wait_time:.1f} 秒后重试 "
