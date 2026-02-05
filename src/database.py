@@ -56,6 +56,19 @@ class DatabaseManager:
         # 1. 提高并发性能：读写操作不再相互阻塞
         # 2. 提升写入速度：减少 fsync 次数
         cursor.execute("PRAGMA journal_mode=WAL")
+        
+        # 同步模式设为 NORMAL（在 WAL 模式下安全且更快）
+        # FULL 会在每次事务后 fsync，NORMAL 只在 checkpoint 时 fsync
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        
+        # 增加页面缓存大小至约 64MB（负数表示 KB）
+        # 默认约 2MB，增大缓存可减少磁盘 I/O
+        cursor.execute("PRAGMA cache_size=-65536")
+        
+        # 启用内存映射 I/O（约 256MB）
+        # 利用操作系统的页面缓存提升读取性能
+        cursor.execute("PRAGMA mmap_size=268435456")
+
 
         # 创建游戏表
         cursor.execute(
