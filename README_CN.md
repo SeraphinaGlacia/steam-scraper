@@ -27,7 +27,7 @@
 
 ---
 
-> [!TIPS] 使用 AI 工具辅助
+> [!TIP]
 > 本项目包含了专为 Agent 设计的 [for_agent.md](for_agent.md) 指南。如果你是技术小白，可以尝试使用 AI 工具来辅助操作本程序。
 > 
 > 如果你正在使用 **Cursor**、**Google Antigravity** 或其他拥有 Agent 能力的 AI 辅助 IDE 或 CLI 工具，只需将该文件**添加至上下文**。AI 即可立刻学会本程序的使用策略与纠错机制，从而能够辅助你操作本程序。
