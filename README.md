@@ -31,7 +31,7 @@
 > This documentation is translated from the [Chinese version](README_CN.md) by Gemini and may not be completely accurate.
 
 > [!TIP]
-> This project includes a guide designed for Agents: [for_agent.md](for_agent.md). If you are a non-technical user, try using AI tools to help you operate this program.
+> This project includes a guide designed for Agents: [for-agent.md](for-agent.md). If you are a non-technical user, try using AI tools to help you operate this program.
 > 
 > If you are using **Cursor**, **Google Antigravity**, or other AI-assisted IDEs or CLI tools with Agent capabilities, simply **add this file to context**. The AI will instantly learn the usage strategy and error handling mechanisms of this program, enabling it to operate the scraper autonomously.
 
