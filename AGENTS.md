@@ -2,9 +2,9 @@
 
 这份文档专为 AI Agent 设计，旨在帮助你快速理解、操作并集成 `steam-scraper` 程序。本程序是一个基于 AsyncIO 的高性能 Steam 游戏与评价数据采集工具。
 
-## 1. 程序架构认知
+## 1. 程序架构
 
-在执行任何操作前，请建立以下认知模型：
+在执行任何操作前，请建立以下认知：
 
 *   **核心引擎**: 基于 Python `asyncio` 的异步并发爬虫。
 *   **数据流**: Web (Steam Store) -> 内存队列 -> SQLite 数据库 (`data/steam_data.db`) -> Excel/CSV 导出。
@@ -13,10 +13,10 @@
 
 ## 2. 环境部署策略
 
-**依赖环境**: Python 3.8+
+**依赖环境**: Python 3.10+
 
 > [!TIP]
-> 如果你不确定具体的指令格式，请一定要随时运行 `python main.py --help` 查看所有可用指令集合。防止出现命令错误。
+> 如果你不确定具体的指令格式，请一定要及时运行 `python main.py --help` 查看所有可用指令集合。防止出现命令错误。
 
 ```bash
 # 1. 克隆项目 (假设已在项目根目录，可跳过)
@@ -39,6 +39,7 @@ python main.py start
 目标：从零开始抓取所有游戏及其评价，并导出数据。
 
 1.  **启动全流程任务**:
+
     ```bash
     python main.py all
     ```
@@ -46,7 +47,9 @@ python main.py start
     *   *耗时*: 取决于游戏数量和网络，可能需要数小时。
 
 2.  **应对中断**:
+
     如果任务因意外停止（网络断开、系统重启），**不要**重新运行 `python main.py all`（这会清除进度！），请务必使用：
+
     ```bash
     python main.py all --resume
     ```
@@ -56,6 +59,7 @@ python main.py start
 目标：需要对每个阶段进行单独控制或调试。
 
 1.  **阶段一：采集游戏基本信息**
+
     ```bash
     python main.py games
     # 调试建议：仅抓取前 5 页进行测试，但是请先询问用户究竟准备爬取几页
@@ -63,12 +67,14 @@ python main.py start
     ```
 
 2.  **阶段二：采集评价历史**
+
     ```bash
     python main.py reviews
     # 前置条件：数据库中必须已有游戏数据
     ```
 
 3.  **阶段三：数据导出**
+
     ```bash
     # 导出 Excel (默认)
     python main.py export
@@ -83,6 +89,7 @@ python main.py start
 
 1.  **检查失败**: 程序运行结束后提醒有失败项目。
 2.  **执行重试**:
+
     ```bash
     python main.py retry
     ```
@@ -91,6 +98,8 @@ python main.py start
 ## 4. 配置优化策略 (`config.yaml`)
 
 你可以通过修改 `config.yaml` 来调整程序行为。
+
+同时告知用户，本程序还没有设计兼容代理池，这是程序未来改进的方向。
 
 | 参数路径 | 默认值 | Agent 调整策略 |
 | :--- | :--- | :--- |
@@ -102,7 +111,7 @@ python main.py start
 
 ## 5. 数据交互指南
 
-AI 可以直接读取生成的数据文件进行分析，无需经过 API。
+AI 可以直接读取生成的数据文件进行分析，无需经过 API，可以用于自检验爬取结果，便于出现问题时及时纠正。
 
 ### 数据库模式 (SQLite: `data/steam_data.db`)
 
@@ -129,7 +138,7 @@ AI 可以直接读取生成的数据文件进行分析，无需经过 API。
 *   **Excel (`data/steam_data.xlsx`)**: 适合人类阅读，包含 `Games` 和 `Reviews` 两个 Sheet。
 *   **CSV (`data/steam_games.csv`, `data/steam_reviews.csv`)**: 适合程序后续处理（如 Pandas 加载），编码为 `utf-8-sig`。
 
-## 6. Agent 操作注意事项 (Do's and Don'ts)
+## 6. 操作注意事项
 
 *   **DO** 优先使用 `--resume` 参数，除非你或用户明确想要丢弃所有既往进度。
 *   **DO** 在长时间任务后运行 `python main.py retry` 确保数据完整性。
@@ -149,3 +158,6 @@ AI 可以直接读取生成的数据文件进行分析，无需经过 API。
 
 *   **Warning**: `检测到 X 个游戏爬取失败记录...`
     *   *策略*: 在运行 `reviews` 之前，最好先运行 `retry --type game` 修复游戏数据，否则评价数据可能失去关联对象。
+
+*   其他类似于 403 Forbidden 的错误，请结合实际情况和终端输出自行分析。
+    
