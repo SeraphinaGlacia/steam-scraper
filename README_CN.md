@@ -5,15 +5,15 @@
 
   <h1>Steam Scraper</h1>
   <p>
-    <strong>小白都能上手的简单、高效、可视化的 Steam 评论数据爬虫。</strong>
+    <strong>用于采集 Steam 游戏基础信息与评价历史的命令行工具。</strong>
   </p>
   <p>
-    专为数据分析与挖掘设计。基于 AsyncIO 全异步架构，令数据抓取自然流畅。
+    面向数据分析与课程/研究练习场景，基于 AsyncIO、SQLite 和 Rich 构建，支持分步采集、断点恢复、失败记录与 Excel 导出。
   </p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/SeraphinaGlacia/steam-scraper?style=flat-square" alt="License"></a>
-    <img src="https://img.shields.io/badge/python-3.8+-blue?style=flat-square&logo=python&logoColor=white" alt="Python Version">
+    <img src="https://img.shields.io/badge/python-3.10+-blue?style=flat-square&logo=python&logoColor=white" alt="Python Version">
     <img src="https://img.shields.io/github/repo-size/SeraphinaGlacia/steam-scraper?style=flat-square" alt="Repo Size">
     <img src="https://img.shields.io/badge/arch-AsyncIO-green?style=flat-square" alt="Architecture">
   </p>
@@ -28,40 +28,51 @@
 ---
 
 > [!TIP]
-> 本项目包含了专为 Agent 设计的 [AGENTS.md](AGENTS.md) 指南。如果你是技术小白，可以尝试使用 AI 工具来辅助操作本程序。
-> 
-> 如果你正在使用 **Cursor**、**Google Antigravity** 或其他拥有 Agent 能力的 AI 辅助 IDE 或 CLI 工具，只需将该文件**添加至上下文**。AI 即可立刻学会本程序的使用策略与纠错机制，从而能够辅助你操作本程序。
+> 本项目包含一份面向 AI Agent 的 [AGENTS.md](AGENTS.md) 操作说明。如果你正在使用 Cursor、Google Antigravity 或其他具备 Agent 能力的 AI 辅助工具，可以把该文件加入上下文，帮助 AI 理解项目的命令、数据流和常见错误处理方式。
 
+## 项目定位
 
-## ✨ 为什么选择它？
+Steam Scraper 是一个个人开源项目，主要用于从 Steam 商店页面和公开接口中采集：
 
-- **⚡️ 极速采集体验**
-    - 基于 **AsyncIO** 重构的核心引擎，单机即可轻松跑满网络带宽。
-    - 智能并发控制 + 毫秒级请求间隔，在速度与反爬封锁之间找到完美平衡点。
+- 游戏基础信息：AppID、名称、发行日期、价格、开发商、发行商、类型和简介等；
+- 评价历史数据：按日期记录的好评/差评累计数据；
+- 可供后续分析使用的 SQLite 数据库和 Excel 报表。
 
-- **📺 美观易懂的终端界面**
-    - 看不懂代码？没有关系！本程序不止有冰冷的代码，更有美观易懂的终端界面。
-    - 集成 **Rich** 库构建，提供清晰的控制指令、进度条与统计面板。即使是**技术小白**，也能通过直观的仪表盘操作并掌握运行状态。
-
-- **🛡️ 告别“从头再来”**
-    - 爬到 99% 突然断网或报错？别担心。
-    - 内置工业级 **断点续传** 机制，随时中断，随时继续。每一条已抓取的数据都会被安全保存。
-
-- **🚀 分析即刻开始**
-    - 不仅仅是抓取，更是为了分析。
-    - 数据直接存入 **SQLite**，结构严谨；支持一键导出 **Excel** 报表，无需编写额外代码即可开始数据分析。
-
-- **🔧 零代码配置**
-    - 并发数、超时时间、目标货币区... 所有参数均可通过 `config.yaml` 调整。
-    - 即使是不懂代码的用户，也能通过简单的配置定制自己的爬虫。
+它适合用于课程作业、数据分析练习、探索性研究或小规模数据整理。它不是分布式爬虫框架，也不包含代理池、自动反封锁策略或完整的 Steam API 封装。
 
 ---
 
-## 🛠️ 快速开始
+## 主要功能
+
+- **异步采集**
+  - 使用 `asyncio` 与 `httpx` 发起并发请求。
+  - 并发数、请求超时和重试次数可通过 `config.yaml` 调整。
+  - 实际速度会受到网络环境、Steam 响应速度和访问频率限制影响。
+
+- **结构化存储**
+  - 游戏信息与评价历史会写入 SQLite 数据库。
+  - 数据表结构较简单，便于使用 SQL 或 Pandas 继续分析。
+
+- **断点恢复与失败记录**
+  - 使用 `.checkpoint.json` 记录已处理和失败的 AppID。
+  - 使用 `failures.json` 保存失败原因，便于后续通过 `retry` 命令重试。
+  - 断点机制用于降低中断后的重复工作量，但仍建议在大规模运行后检查失败记录。
+
+- **终端输出**
+  - 基于 Rich 提供进度条、提示信息和确认面板。
+  - 主要交互方式仍然是命令行。
+
+- **数据导出**
+  - 支持将 SQLite 数据导出为 Excel 文件。
+  - 代码中包含 CSV 导出相关逻辑；如果依赖 CSV 结果，请在当前版本中运行后检查生成文件是否符合预期。
+
+---
+
+## 快速开始
 
 ### 1. 安装依赖
 
-确保你的 Python 版本 >= 3.8。
+建议使用 Python 3.10 或更高版本。
 
 ```bash
 git clone https://github.com/SeraphinaGlacia/steam-scraper.git
@@ -69,122 +80,144 @@ cd steam-scraper
 pip install -r requirements.txt
 ```
 
-### 2. 体验炫酷启动页 (彩蛋🎪) 
+### 2. 检查命令行入口
 
-我们在命令行帮助中隐藏了这个命令，虽然其没有实际作用，但你可以直接运行它来测试环境配置，并欣赏启动画面：
+```bash
+python main.py --help
+```
+
+也可以运行启动页命令，确认 Rich 和 pyfiglet 等依赖已安装：
 
 ```bash
 python main.py start
 ```
 
-### 3. 标准工作流
+### 3. 先用少量页面测试
 
-最常用的全自动一条龙服务：
+在正式运行全量采集前，建议先抓取少量页面，确认网络和数据写入正常：
 
 ```bash
-# 1. 启动完整抓取任务（游戏信息 -> 评价历史 -> 导出 Excel + CSV）
-python main.py all
+python main.py games --pages 10
+python main.py reviews
+python main.py export
+```
 
-# 2. 如果任务中断，恢复进度
+完整流程可以使用：
+
+```bash
+python main.py all
+```
+
+如果任务中断，可以使用：
+
+```bash
 python main.py all --resume
 ```
 
 ---
 
-## 📖 详细命令指南
+## 命令说明
 
-我们的 CLI 设计遵循 UNIX 哲学，提供丰富的子命令：
-
-### 🎮 抓取游戏信息 (`games`)
-
-仅抓取 Steam 商店的游戏基础数据（价格、开发商、好评率等）。
+### 抓取游戏基础信息：`games`
 
 ```bash
 python main.py games              # 抓取所有分页
-python main.py games --pages 10   # 仅抓取前 10 页（适合测试）
-python main.py games --resume     # 从上次中断处继续
+python main.py games --pages 10   # 只抓取前 10 页，适合测试
+python main.py games --resume     # 从断点继续
 ```
 
-### 📝 抓取评价历史 (`reviews`)
-
-针对基础信息已写入数据库的游戏，抓取其历史评价趋势数据。
+### 抓取评价历史：`reviews`
 
 ```bash
-python main.py reviews            # 抓取数据库中所有游戏的评价
-python main.py reviews --resume   # 断点续传
+python main.py reviews            # 抓取数据库中已有游戏的评价历史
+python main.py reviews --resume   # 从断点继续
 ```
 
-### 📤 导出数据 (`export`)
+也可以指定包含 AppID 的文本文件：
 
-将 SQLite 数据库中的内容导出为 Excel 文件。
+```bash
+python main.py reviews --input appids.txt
+```
+
+### 导出数据：`export`
 
 ```bash
 python main.py export
-# 输出文件默认位于 data/steam_data.xlsx
-
-# 如果数据量巨大（超过 Excel 104万行限制），可以导出为 CSV：
-python main.py export --format csv
-# 将在 data/ 目录下生成 steam_games.csv 和 steam_reviews.csv
 ```
 
-### 🔄 失败重试 (`retry`)
+默认输出：
 
-程序会自动记录所有失败的请求。由于网络波动导致的失败，可以通过此命令一键修复。
+```text
+data/steam_data.xlsx
+```
+
+### 重试失败任务：`retry`
 
 ```bash
 python main.py retry              # 重试所有失败任务
-python main.py retry --type game  # 仅重试游戏信息任务
+python main.py retry --type game  # 只重试游戏信息任务
+python main.py retry --type review # 只重试评价历史任务
 ```
 
-### 🧹 维护与清理 (`clean` / `reset`)
-
-保持项目整洁。
-
-> [!CAUTION]
-> `reset` 命令会删除所有数据，包括数据库、导出文件、失败日志等，且不可恢复！
+### 清理与重置：`clean` / `reset`
 
 ```bash
-python main.py clean    # 清理 Python 缓存、断点文件等临时文件
-python main.py reset    # ⚠️【高危】删除数据库和所有数据，重置为初始状态
+python main.py clean    # 清理缓存、断点和临时文件
+python main.py reset    # 删除数据库、导出文件、失败日志和断点文件
 ```
+
+> [!CAUTION]
+> `reset` 会删除 `data/` 目录下的运行结果，操作不可恢复。请确认不再需要已有数据后再使用。
 
 ---
 
-## ⚙️ 配置说明
+## 配置说明
 
-所有魔法都在 `config.yaml` 中定义，你可以随心定制：
+主要配置位于 `config.yaml`：
 
 ```yaml
 scraper:
   language: english       # Steam 商店语言
   currency: us            # 货币代码
-  category: "998"         # 分类 ID（998 为游戏）
-  max_workers: 20         # 并发数（AsyncIO 模式下建议 15-20，过高可能导致 IP 封禁）
+  category: "998"         # 分类 ID，998 通常表示 Games
+  max_workers: 20         # 并发数，过高可能触发限流或连接错误
 
 http:
-  timeout: 30             # 请求超时（秒）
-  max_retries: 3          # 最大重试次数
-  min_delay: 0.5          # 请求间隔最小值（秒）
-  max_delay: 1.5          # 请求间隔最大值（秒）
+  timeout: 30             # 请求超时，单位：秒
+  max_retries: 3          # 单次请求最大重试次数
+  min_delay: 0.5          # 请求间隔最小值，单位：秒
+  max_delay: 1.5          # 请求间隔最大值，单位：秒
 
 output:
-  data_dir: ./data        # 数据输出目录
-  checkpoint_file: .checkpoint.json  # 断点文件
+  data_dir: ./data
+  checkpoint_file: .checkpoint.json
 ```
+
+如果遇到大量 `429 Too Many Requests`、连接超时或失败记录明显增多，建议降低 `scraper.max_workers`，并在稍后使用 `retry` 命令补抓失败项目。
 
 ---
 
-## 📂 数据结构
+## 数据结构
 
-运行后，`data/` 目录将包含：
+运行后，`data/` 目录可能包含：
 
-| 文件 | 描述 |
+| 文件 | 说明 |
 | :--- | :--- |
-| `steam_data.db` | **核心数据库** (SQLite)。包含 `games` 和 `reviews` 两张表，适合开发者直接查询。 |
-| `steam_data.xlsx` | **最终报表**。包含两个 Sheet，无需写代码即可分析数据。 |
-| `steam_*.csv` | **CSV 数据集**。当数据量超过 Excel 限制时生成，采用 UTF-8-SIG 编码，兼容 Excel。 |
-| `failures.json` | **失败日志**。记录失败的 ID、原因、时间戳等详细信息，便于排查问题。`retry` 成功后会删除对应条目。 |
-| `.checkpoint.json` | **进度存档**。记录已完成/失败的 ID 列表，用于 `--resume` 断点续传。包含 games 和 reviews 的独立状态。 |
+| `steam_data.db` | SQLite 数据库，包含 `games` 和 `reviews` 两张表。 |
+| `steam_data.xlsx` | Excel 导出文件，包含游戏信息和评价历史两个 Sheet。 |
+| `steam_*.csv` | CSV 导出文件；请根据当前版本实际生成情况检查。 |
+| `failures.json` | 失败任务记录，包含失败类型、ID、原因和时间戳。 |
+| `.checkpoint.json` | 断点记录，用于 `--resume` 恢复任务。 |
+
+---
+
+## 已知限制
+
+- 当前项目主要面向个人学习、课程作业和小规模数据分析，不建议作为生产级采集系统直接使用。
+- 项目没有内置代理池、动态限流、验证码处理或分布式调度能力。
+- Steam 页面结构或公开接口变化可能导致解析失败。
+- 大规模采集前建议先用 `--pages` 做小样本测试，并在结束后检查失败日志。
+- 当前源码使用了 Python 3.10+ 的类型语法，因此建议使用 Python 3.10 或更高版本运行。
 
 ---
 
