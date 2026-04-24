@@ -5,15 +5,15 @@
 
   <h1>Steam Scraper</h1>
   <p>
-    <strong>A simple, efficient, and visual Steam review data scraper. Plug and play.</strong>
+    <strong>A command-line tool for collecting Steam game metadata and review history.</strong>
   </p>
   <p>
-    Designed for data analysis and mining. Built on a fully asynchronous architecture, making data scraping as natural as breathing.
+    Built for data analysis, coursework, and exploratory research. It uses AsyncIO, SQLite, and Rich to support step-by-step scraping, checkpoint-based resume, failure logs, and Excel export.
   </p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/SeraphinaGlacia/steam-scraper?style=flat-square" alt="License"></a>
-    <img src="https://img.shields.io/badge/python-3.8+-blue?style=flat-square&logo=python&logoColor=white" alt="Python Version">
+    <img src="https://img.shields.io/badge/python-3.10+-blue?style=flat-square&logo=python&logoColor=white" alt="Python Version">
     <img src="https://img.shields.io/github/repo-size/SeraphinaGlacia/steam-scraper?style=flat-square" alt="Repo Size">
     <img src="https://img.shields.io/badge/arch-AsyncIO-green?style=flat-square" alt="Architecture">
   </p>
@@ -27,43 +27,52 @@
 
 ---
 
-> [!WARNING]
-> This documentation is translated from the [Chinese version](README_CN.md) by Gemini and may not be completely accurate.
-
 > [!TIP]
-> This project includes a guide designed for Agents: [AGENTS.md](AGENTS.md). If you are a non-technical user, try using AI tools to help you operate this program.
-> 
-> If you are using **Cursor**, **Google Antigravity**, or other AI-assisted IDEs or CLI tools with Agent capabilities, simply **add this file to context**. The AI will instantly learn the usage strategy and error handling mechanisms of this program, enabling it to operate the scraper autonomously.
+> This project includes an AI-agent-oriented guide: [AGENTS.md](AGENTS.md). If you are using Cursor, Google Antigravity, or another AI-assisted IDE/CLI with agent capabilities, adding this file to context can help the agent understand the commands, data flow, and common error-handling steps.
 
-## ✨ Why Choose This?
+## Project Scope
 
-- **⚡️ Blazing Fast Collection**
-    - Powered by an **AsyncIO** core engine to easily maximize your network bandwidth on a single machine.
-    - Intelligent concurrency control + millisecond-level request intervals find the perfect balance between speed and anti-bot measures.
+Steam Scraper is a personal open-source project for collecting data from Steam store pages and public endpoints, including:
 
-- **📺 Beautiful & Intuitive Terminal UI**
-    - Don't understand code? No problem! This program is not just cold lines of code, but features a beautiful and easy-to-understand terminal interface.
-    - Integrated with **Rich** to provide clear control instructions, progress bars, and statistical panels. Even **non-tech users** can intuitively operate and monitor the running status.
+- Game metadata: AppID, name, release date, price, developers, publishers, genres, and short description.
+- Review history: daily cumulative positive and negative recommendation counts.
+- Local outputs for later analysis: a SQLite database and an Excel workbook.
 
-- **🛡️ Say Goodbye to "Starting Over"**
-    - Internet cut off or errored out at 99%? Don't panic.
-    - Built-in industrial-grade **checkpoint resuming** mechanism lets you pause and resume anytime. Every single scrapped record is safely saved.
-
-- **🚀 Ready for Analysis**
-    - Not just scraping, but for analysis.
-    - Data is stored directly into a structured **SQLite** database; supports one-click export to standard **Excel** reports, so you can start analyzing without writing extra code.
-
-- **🔧 Zero-Code Configuration**
-    - Concurrency, timeout, retry counts, target currency... all parameters can be adjusted via `config.yaml`.
-    - Even users who don't know how to code can customize their own scraper through simple configuration.
+It is suitable for coursework, data analysis practice, exploratory research, and small-scale dataset preparation. It is not a distributed crawler framework, a complete Steam API wrapper, or a production-grade scraping system with proxy pools and automated anti-blocking strategies.
 
 ---
 
-## 🛠️ Quick Start
+## Features
 
-### 1. Install Dependencies
+- **Asynchronous collection**
+  - Uses `asyncio` and `httpx` for concurrent requests.
+  - Concurrency, timeout, and retry settings can be adjusted in `config.yaml`.
+  - Actual throughput depends on your network, Steam response speed, and rate limits.
 
-Ensure your Python version is >= 3.8.
+- **Structured local storage**
+  - Game metadata and review history are stored in SQLite.
+  - The schema is intentionally simple so that the data can be queried with SQL or loaded into Pandas.
+
+- **Resume and failure tracking**
+  - `.checkpoint.json` records processed and failed AppIDs.
+  - `failures.json` keeps failure details for later inspection and retry.
+  - The checkpoint mechanism reduces repeated work after interruption, but large runs should still be followed by a failure-log check.
+
+- **Terminal output**
+  - Uses Rich for progress bars, messages, and confirmation panels.
+  - The primary interface is still the command line.
+
+- **Data export**
+  - Supports exporting the SQLite database to an Excel workbook.
+  - CSV-related export logic exists in the codebase; if you rely on CSV output, please verify the generated files with the current version.
+
+---
+
+## Quick Start
+
+### 1. Install dependencies
+
+Python 3.10 or later is recommended.
 
 ```bash
 git clone https://github.com/SeraphinaGlacia/steam-scraper.git
@@ -71,123 +80,145 @@ cd steam-scraper
 pip install -r requirements.txt
 ```
 
-### 2. Experience the Splash Screen (Easter Egg 🎪) 
+### 2. Check the CLI entry point
 
-We hid this command in the CLI help, though it serves no practical purpose, you can run it to test your environment and inspect the splash screen:
+```bash
+python main.py --help
+```
+
+You can also run the splash-screen command to verify that dependencies such as Rich and pyfiglet are installed:
 
 ```bash
 python main.py start
 ```
 
-### 3. Standard Workflow
+### 3. Start with a small test run
 
-The most commonly used all-in-one command:
+Before running a full collection, it is recommended to scrape a small number of pages first and check that networking and database writes work as expected:
 
 ```bash
-# 1. Start the complete scraping task (Games -> Reviews -> Export Excel + CSV)
-python main.py all
+python main.py games --pages 10
+python main.py reviews
+python main.py export
+```
 
-# 2. If interrupted, resume progress
+The full workflow can be started with:
+
+```bash
+python main.py all
+```
+
+If the task is interrupted, resume with:
+
+```bash
 python main.py all --resume
 ```
 
 ---
 
-## 📖 Detailed Command Guide
+## Commands
 
-Our CLI follows UNIX philosophy, providing rich subcommands:
-
-### 🎮 Scrape Game Info (`games`)
-
-Only scrapes basic game data (price, developer, rating, etc.) from the Steam store.
+### Scrape game metadata: `games`
 
 ```bash
 python main.py games              # Scrape all pages
-python main.py games --pages 10   # Scrape only first 10 pages (for testing)
-python main.py games --resume     # Resume from last checkpoint
+python main.py games --pages 10   # Scrape only the first 10 pages for testing
+python main.py games --resume     # Resume from checkpoint
 ```
 
-### 📝 Scrape Review History (`reviews`)
-
-Scrapes historical review trend data for games already in the database.
+### Scrape review history: `reviews`
 
 ```bash
-python main.py reviews            # Scrape reviews for all games in DB
+python main.py reviews            # Scrape review history for games already in the database
 python main.py reviews --resume   # Resume from checkpoint
 ```
 
-### 📤 Export Data (`export`)
+You can also provide a text file containing AppIDs:
 
-Exports content from SQLite database to an Excel file.
+```bash
+python main.py reviews --input appids.txt
+```
+
+### Export data: `export`
 
 ```bash
 python main.py export
-# Output file defaults to data/steam_data.xlsx
-
-# If dataset is huge (exceeding Excel's row limit), export as CSV:
-python main.py export --format csv
-# Generates steam_games.csv and steam_reviews.csv in data/ directory
 ```
 
-### 🔄 Retry Failures (`retry`)
+Default output:
 
-The program automatically logs all failed requests. Failures due to network fluctuations can be fixed with one click using this command.
+```text
+data/steam_data.xlsx
+```
+
+### Retry failed tasks: `retry`
 
 ```bash
-python main.py retry              # Retry all failed tasks
-python main.py retry --type game  # Retry only game info tasks
+python main.py retry               # Retry all failed tasks
+python main.py retry --type game   # Retry only game metadata tasks
+python main.py retry --type review # Retry only review-history tasks
 ```
 
-### 🧹 Maintenance (`clean` / `reset`)
+### Clean and reset: `clean` / `reset`
 
-Keep the project tidy.
+```bash
+python main.py clean    # Clean caches, checkpoints, and temporary files
+python main.py reset    # Delete database, exported files, failure logs, and checkpoints
+```
 
 > [!CAUTION]
-> The `reset` command will delete ALL data, including database, exported files, failure logs, etc., and is irreversible!
-
-```bash
-python main.py clean    # Clean Python cache, checkpoints, and temporary files
-python main.py reset    # ⚠️ [DANGER] Delete database and all data, reset to initial state
-```
+> `reset` deletes generated files under `data/` and cannot be undone. Use it only after confirming that the existing data is no longer needed.
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-All magic is defined in `config.yaml`, which you can customize as you wish:
+Main settings are defined in `config.yaml`:
 
 ```yaml
 scraper:
   language: english       # Steam store language
   currency: us            # Currency code
-  category: "998"         # Category ID (998 is for Games)
-  max_workers: 20         # Concurrency (15-20 recommended for AsyncIO, higher may trigger bans)
+  category: "998"         # Category ID; 998 usually refers to Games
+  max_workers: 20         # Concurrency; too high may cause rate limits or connection errors
 
 http:
-  timeout: 30             # Request timeout (seconds)
-  max_retries: 3          # Max retries
-  min_delay: 0.5          # Min request interval (seconds)
-  max_delay: 1.5          # Max request interval (seconds)
+  timeout: 30             # Request timeout in seconds
+  max_retries: 3          # Maximum retries for a single request
+  min_delay: 0.5          # Minimum delay between requests in seconds
+  max_delay: 1.5          # Maximum delay between requests in seconds
 
 output:
-  data_dir: ./data        # Data output directory
-  checkpoint_file: .checkpoint.json  # Checkpoint file
+  data_dir: ./data
+  checkpoint_file: .checkpoint.json
 ```
+
+If you encounter many `429 Too Many Requests` responses, connection timeouts, or an unusually large number of failures, consider lowering `scraper.max_workers` and retrying failed items later with the `retry` command.
 
 ---
 
-## 📂 Data Structure
+## Data Files
 
-After running, the `data/` directory will verify:
+After running the scraper, the `data/` directory may contain:
 
 | File | Description |
 | :--- | :--- |
-| `steam_data.db` | **Core Database** (SQLite). Contains `games` and `reviews` tables, suitable for direct SQL queries. |
-| `steam_data.xlsx` | **Final Report**. Contains two sheets, ready for analysis without coding. |
-| `steam_*.csv` | **CSV Dataset**. Generated for huge datasets, UTF-8-SIG encoded for Excel compatibility. |
-| `failures.json` | **Failure Log**. Records failed IDs, reasons, timestamps, etc. Deleted after successful `retry`. |
-| `.checkpoint.json` | **Progress Save**. Records completed/failed ID lists for `--resume`. Contains independent states for games and reviews. |
- 
+| `steam_data.db` | SQLite database containing the `games` and `reviews` tables. |
+| `steam_data.xlsx` | Excel workbook containing game metadata and review history sheets. |
+| `steam_*.csv` | CSV exports; please verify actual generation behavior with the current version. |
+| `failures.json` | Failed-task records, including type, ID, reason, and timestamp. |
+| `.checkpoint.json` | Checkpoint state used by `--resume`. |
+
+---
+
+## Known Limitations
+
+- This project is mainly intended for personal learning, coursework, and small-scale data analysis. It should not be treated as a production scraping system as-is.
+- It does not include proxy pools, dynamic rate-limit adaptation, CAPTCHA handling, or distributed scheduling.
+- Changes in Steam page structure or public endpoints may break parsing.
+- Before large-scale runs, test with `--pages` and inspect the failure log afterwards.
+- The current codebase uses Python 3.10+ type syntax, so Python 3.10 or later is recommended.
+
 ---
 
 <div align="center">
