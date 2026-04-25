@@ -28,7 +28,7 @@
 ---
 
 > [!TIP]
-> This project includes an AI-agent-oriented guide: [AGENTS.md](AGENTS.md). If you are using Cursor, Antigravity, Claude Code, Codex or another AI-assisted IDE/CLI with agent capabilities, adding this file to context can help the agent understand the commands, data flow, and common error-handling steps.
+> This project includes an AI-agent-oriented guide: [AGENTS.md](AGENTS.md). If you are using Cursor, Antigravity, Claude Code, Codex or another tools, AI can use it to help you operate this program.
 
 ## Project Scope
 

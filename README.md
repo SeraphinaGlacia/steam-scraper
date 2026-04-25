@@ -28,7 +28,7 @@
 ---
 
 > [!TIP]
-> 本项目包含一份面向 AI Agent 的 [AGENTS.md](AGENTS.md) 操作说明。如果你正在使用 Cursor、Antigravity、Claude Code、Codex 或其他具备 Agent 能力的 AI 辅助工具，可以把该文件加入上下文，帮助 AI 理解项目的命令、数据流和常见错误处理方式。
+> 本项目包含一份面向智能体的 [AGENTS.md](AGENTS.md) 操作说明。如果你正在使用 Cursor、Antigravity、Claude Code、Codex 或其他工具，AI 可以通过其帮助你操作本程序。
 
 ## 项目定位
 
