@@ -5,10 +5,10 @@
 
   <h1>Steam Scraper</h1>
   <p>
-    <strong>A command-line tool for collecting Steam game metadata and review history.</strong>
+    <strong>用于采集 Steam 游戏基础信息与评价历史的命令行工具。</strong>
   </p>
   <p>
-    Built for data analysis, coursework, and exploratory research. It uses AsyncIO, SQLite, and Rich to support step-by-step scraping, checkpoint-based resume, failure logs, and Excel export.
+    面向数据分析与课程/研究练习场景，基于 AsyncIO、SQLite 和 Rich 构建，支持分步采集、断点恢复、失败记录与 Excel 导出。
   </p>
 
   <p>
@@ -19,8 +19,8 @@
   </p>
 
   <p>
-    <a href="README.md">English</a> • 
-    <a href="README_CN.md">中文</a>
+    <a href="README_EN.md">English</a> • 
+    <a href="README.md">中文</a>
     <br>
   </p>
 </div>
@@ -28,51 +28,51 @@
 ---
 
 > [!TIP]
-> This project includes an AI-agent-oriented guide: [AGENTS.md](AGENTS.md). If you are using Cursor, Google Antigravity, or another AI-assisted IDE/CLI with agent capabilities, adding this file to context can help the agent understand the commands, data flow, and common error-handling steps.
+> 本项目包含一份面向 AI Agent 的 [AGENTS.md](AGENTS.md) 操作说明。如果你正在使用 Cursor、Antigravity、Claude Code、Codex 或其他具备 Agent 能力的 AI 辅助工具，可以把该文件加入上下文，帮助 AI 理解项目的命令、数据流和常见错误处理方式。
 
-## Project Scope
+## 项目定位
 
-Steam Scraper is a personal open-source project for collecting data from Steam store pages and public endpoints, including:
+Steam Scraper 是一个个人开源项目，主要用于从 Steam 商店页面和公开接口中采集：
 
-- Game metadata: AppID, name, release date, price, developers, publishers, genres, and short description.
-- Review history: daily cumulative positive and negative recommendation counts.
-- Local outputs for later analysis: a SQLite database and an Excel workbook.
+- 游戏基础信息：AppID、名称、发行日期、价格、开发商、发行商、类型和简介等；
+- 评价历史数据：按日期记录的好评/差评累计数据；
+- 可供后续分析使用的 SQLite 数据库和 Excel 报表。
 
-It is suitable for coursework, data analysis practice, exploratory research, and small-scale dataset preparation. It is not a distributed crawler framework, a complete Steam API wrapper, or a production-grade scraping system with proxy pools and automated anti-blocking strategies.
-
----
-
-## Features
-
-- **Asynchronous collection**
-  - Uses `asyncio` and `httpx` for concurrent requests.
-  - Concurrency, timeout, and retry settings can be adjusted in `config.yaml`.
-  - Actual throughput depends on your network, Steam response speed, and rate limits.
-
-- **Structured local storage**
-  - Game metadata and review history are stored in SQLite.
-  - The schema is intentionally simple so that the data can be queried with SQL or loaded into Pandas.
-
-- **Resume and failure tracking**
-  - `.checkpoint.json` records processed and failed AppIDs.
-  - `failures.json` keeps failure details for later inspection and retry.
-  - The checkpoint mechanism reduces repeated work after interruption, but large runs should still be followed by a failure-log check.
-
-- **Terminal output**
-  - Uses Rich for progress bars, messages, and confirmation panels.
-  - The primary interface is still the command line.
-
-- **Data export**
-  - Supports exporting the SQLite database to an Excel workbook.
-  - CSV-related export logic exists in the codebase; if you rely on CSV output, please verify the generated files with the current version.
+它适合用于课程作业、数据分析练习、探索性研究或小规模数据整理。它不是分布式爬虫框架，也不包含代理池、自动反封锁策略或完整的 Steam API 封装。
 
 ---
 
-## Quick Start
+## 主要功能
 
-### 1. Install dependencies
+- **异步采集**
+  - 使用 `asyncio` 与 `httpx` 发起并发请求。
+  - 并发数、请求超时和重试次数可通过 `config.yaml` 调整。
+  - 实际速度会受到网络环境、Steam 响应速度和访问频率限制影响。
 
-Python 3.10 or later is recommended.
+- **结构化存储**
+  - 游戏信息与评价历史会写入 SQLite 数据库。
+  - 数据表结构较简单，便于使用 SQL 或 Pandas 继续分析。
+
+- **断点恢复与失败记录**
+  - 使用 `.checkpoint.json` 记录已处理和失败的 AppID。
+  - 使用 `failures.json` 保存失败原因，便于后续通过 `retry` 命令重试。
+  - 断点机制用于降低中断后的重复工作量，但仍建议在大规模运行后检查失败记录。
+
+- **终端输出**
+  - 基于 Rich 提供进度条、提示信息和确认面板。
+  - 主要交互方式仍然是命令行。
+
+- **数据导出**
+  - 支持将 SQLite 数据导出为 Excel 文件。
+  - 代码中包含 CSV 导出相关逻辑；如果依赖 CSV 结果，请在当前版本中运行后检查生成文件是否符合预期。
+
+---
+
+## 快速开始
+
+### 1. 安装依赖
+
+建议使用 Python 3.10 或更高版本。
 
 ```bash
 git clone https://github.com/SeraphinaGlacia/steam-scraper.git
@@ -80,21 +80,21 @@ cd steam-scraper
 pip install -r requirements.txt
 ```
 
-### 2. Check the CLI entry point
+### 2. 检查命令行入口
 
 ```bash
 python main.py --help
 ```
 
-You can also run the splash-screen command to verify that dependencies such as Rich and pyfiglet are installed:
+也可以运行启动页命令，确认 Rich 和 pyfiglet 等依赖已安装：
 
 ```bash
 python main.py start
 ```
 
-### 3. Start with a small test run
+### 3. 先用少量页面测试
 
-Before running a full collection, it is recommended to scrape a small number of pages first and check that networking and database writes work as expected:
+在正式运行全量采集前，建议先抓取少量页面，确认网络和数据写入正常：
 
 ```bash
 python main.py games --pages 10
@@ -102,13 +102,13 @@ python main.py reviews
 python main.py export
 ```
 
-The full workflow can be started with:
+完整流程可以使用：
 
 ```bash
 python main.py all
 ```
 
-If the task is interrupted, resume with:
+如果任务中断，可以使用：
 
 ```bash
 python main.py all --resume
@@ -116,108 +116,108 @@ python main.py all --resume
 
 ---
 
-## Commands
+## 命令说明
 
-### Scrape game metadata: `games`
-
-```bash
-python main.py games              # Scrape all pages
-python main.py games --pages 10   # Scrape only the first 10 pages for testing
-python main.py games --resume     # Resume from checkpoint
-```
-
-### Scrape review history: `reviews`
+### 抓取游戏基础信息：`games`
 
 ```bash
-python main.py reviews            # Scrape review history for games already in the database
-python main.py reviews --resume   # Resume from checkpoint
+python main.py games              # 抓取所有分页
+python main.py games --pages 10   # 只抓取前 10 页，适合测试
+python main.py games --resume     # 从断点继续
 ```
 
-You can also provide a text file containing AppIDs:
+### 抓取评价历史：`reviews`
+
+```bash
+python main.py reviews            # 抓取数据库中已有游戏的评价历史
+python main.py reviews --resume   # 从断点继续
+```
+
+也可以指定包含 AppID 的文本文件：
 
 ```bash
 python main.py reviews --input appids.txt
 ```
 
-### Export data: `export`
+### 导出数据：`export`
 
 ```bash
 python main.py export
 ```
 
-Default output:
+默认输出：
 
 ```text
 data/steam_data.xlsx
 ```
 
-### Retry failed tasks: `retry`
+### 重试失败任务：`retry`
 
 ```bash
-python main.py retry               # Retry all failed tasks
-python main.py retry --type game   # Retry only game metadata tasks
-python main.py retry --type review # Retry only review-history tasks
+python main.py retry              # 重试所有失败任务
+python main.py retry --type game  # 只重试游戏信息任务
+python main.py retry --type review # 只重试评价历史任务
 ```
 
-### Clean and reset: `clean` / `reset`
+### 清理与重置：`clean` / `reset`
 
 ```bash
-python main.py clean    # Clean caches, checkpoints, and temporary files
-python main.py reset    # Delete database, exported files, failure logs, and checkpoints
+python main.py clean    # 清理缓存、断点和临时文件
+python main.py reset    # 删除数据库、导出文件、失败日志和断点文件
 ```
 
 > [!CAUTION]
-> `reset` deletes generated files under `data/` and cannot be undone. Use it only after confirming that the existing data is no longer needed.
+> `reset` 会删除 `data/` 目录下的运行结果，操作不可恢复。请确认不再需要已有数据后再使用。
 
 ---
 
-## Configuration
+## 配置说明
 
-Main settings are defined in `config.yaml`:
+主要配置位于 `config.yaml`：
 
 ```yaml
 scraper:
-  language: english       # Steam store language
-  currency: us            # Currency code
-  category: "998"         # Category ID; 998 usually refers to Games
-  max_workers: 20         # Concurrency; too high may cause rate limits or connection errors
+  language: english       # Steam 商店语言
+  currency: us            # 货币代码
+  category: "998"         # 分类 ID，998 通常表示 Games
+  max_workers: 20         # 并发数，过高可能触发限流或连接错误
 
 http:
-  timeout: 30             # Request timeout in seconds
-  max_retries: 3          # Maximum retries for a single request
-  min_delay: 0.5          # Minimum delay between requests in seconds
-  max_delay: 1.5          # Maximum delay between requests in seconds
+  timeout: 30             # 请求超时，单位：秒
+  max_retries: 3          # 单次请求最大重试次数
+  min_delay: 0.5          # 请求间隔最小值，单位：秒
+  max_delay: 1.5          # 请求间隔最大值，单位：秒
 
 output:
   data_dir: ./data
   checkpoint_file: .checkpoint.json
 ```
 
-If you encounter many `429 Too Many Requests` responses, connection timeouts, or an unusually large number of failures, consider lowering `scraper.max_workers` and retrying failed items later with the `retry` command.
+如果遇到大量 `429 Too Many Requests`、连接超时或失败记录明显增多，建议降低 `scraper.max_workers`，并在稍后使用 `retry` 命令补抓失败项目。
 
 ---
 
-## Data Files
+## 数据结构
 
-After running the scraper, the `data/` directory may contain:
+运行后，`data/` 目录可能包含：
 
-| File | Description |
+| 文件 | 说明 |
 | :--- | :--- |
-| `steam_data.db` | SQLite database containing the `games` and `reviews` tables. |
-| `steam_data.xlsx` | Excel workbook containing game metadata and review history sheets. |
-| `steam_*.csv` | CSV exports; please verify actual generation behavior with the current version. |
-| `failures.json` | Failed-task records, including type, ID, reason, and timestamp. |
-| `.checkpoint.json` | Checkpoint state used by `--resume`. |
+| `steam_data.db` | SQLite 数据库，包含 `games` 和 `reviews` 两张表。 |
+| `steam_data.xlsx` | Excel 导出文件，包含游戏信息和评价历史两个 Sheet。 |
+| `steam_*.csv` | CSV 导出文件；请根据当前版本实际生成情况检查。 |
+| `failures.json` | 失败任务记录，包含失败类型、ID、原因和时间戳。 |
+| `.checkpoint.json` | 断点记录，用于 `--resume` 恢复任务。 |
 
 ---
 
-## Known Limitations
+## 已知限制
 
-- This project is mainly intended for personal learning, coursework, and small-scale data analysis. It should not be treated as a production scraping system as-is.
-- It does not include proxy pools, dynamic rate-limit adaptation, CAPTCHA handling, or distributed scheduling.
-- Changes in Steam page structure or public endpoints may break parsing.
-- Before large-scale runs, test with `--pages` and inspect the failure log afterwards.
-- The current codebase uses Python 3.10+ type syntax, so Python 3.10 or later is recommended.
+- 当前项目主要面向个人学习、课程作业和小规模数据分析，不建议作为生产级采集系统直接使用。
+- 项目没有内置代理池、动态限流、验证码处理或分布式调度能力。
+- Steam 页面结构或公开接口变化可能导致解析失败。
+- 大规模采集前建议先用 `--pages` 做小样本测试，并在结束后检查失败日志。
+- 当前源码使用了 Python 3.10+ 的类型语法，因此建议使用 Python 3.10 或更高版本运行。
 
 ---
 
