@@ -222,5 +222,5 @@ output:
 ---
 
 <div align="center">
-  <p>Made with ❤️ by SeraphinaGlacia / Zhou Xinlei</p>
+  <p>Made with ❤️ by SeraphinaGlacia / Xinlei Zhou</p>
 </div>
