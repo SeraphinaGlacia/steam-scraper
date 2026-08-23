@@ -1,0 +1,146 @@
+[project]
+name = "steam-scraper"
+version = "1.0.0"
+description = "用于采集 Steam 游戏信息与评价历史的异步命令行工具"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "SeraphinaGlacia / Xinlei Zhou" },
+]
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27.0",
+    "openpyxl>=3.1.0",
+    "orjson>=3.9.0",
+    "pandas>=2.2.0",
+    "pyfiglet>=0.8.0",
+    "pyyaml>=6.0.0",
+    "rich>=13.0.0",
+    "typing-extensions>=4.1.0",
+    "uvloop>=0.19.0 ; sys_platform != 'win32'",
+]
+
+[project.scripts]
+steam-scraper = "steam_scraper.cli:main"
+
+[project.urls]
+Repository = "https://github.com/SeraphinaGlacia/steam-scraper"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+source-include = [
+    ".python-version",
+    "AGENTS.md",
+    "README_EN.md",
+    "assets/**",
+    "config.yaml",
+    "tests/**",
+    "uv.lock",
+]
+
+[dependency-groups]
+dev = [
+    { include-group = "lint" },
+    { include-group = "test" },
+]
+lint = [
+    "ruff>=0.16.0",
+    "ty>=0.0.74",
+]
+test = [
+    "pytest>=9",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "N",
+    "D",
+    "DOC102",
+    "DOC201",
+    "DOC402",
+    "DOC501",
+    "ANN",
+]
+ignore = [
+    "D206",
+    "D300",
+    "D415",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D", "DOC", "ANN"]
+"**/__init__.py" = ["D104"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+docstring-code-line-length = 88
+
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ty.rules]
+blanket-ignore-comment = "error"
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+unused-ignore-comment = "warn"
+
+[tool.pytest]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--import-mode=importlib",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=steam_scraper",
+    "--cov-report=term-missing",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/steam_scraper"]
+omit = [
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+fail_under = 50
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
+show_missing = true

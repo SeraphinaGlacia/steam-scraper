@@ -1,13 +1,10 @@
-"""
-UI 管理模块。
+"""UI 管理模块。
 
 基于 rich 库封装统一的控制台输出、进度条和表格展示。
 此模块确保整个项目的 CLI 输出风格统一，并提供一致的用户体验。
 """
 
 from __future__ import annotations
-
-from typing import Any, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -16,12 +13,10 @@ from rich.progress import (
     MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TaskID,
     TextColumn,
     TimeRemainingColumn,
 )
 from rich.prompt import Confirm
-from rich.style import Style
 from rich.table import Table
 from rich.theme import Theme
 
@@ -49,7 +44,7 @@ class UIManager:
             }
         )
         self.console = Console(theme=self.theme)
-        self._progress: Optional[Progress] = None
+        self._progress: Progress | None = None
 
     def print(self, message: str, style: str = "") -> None:
         """打印消息。"""
@@ -78,7 +73,7 @@ class UIManager:
             message: 警告消息内容。
         """
         self.console.print(f"⚠️  {message}", style="warning")
-        
+
     def print_info(self, message: str) -> None:
         """打印普通信息（青色带信息图标）。
 

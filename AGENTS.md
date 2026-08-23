@@ -13,22 +13,24 @@
 
 ## 2. 环境部署策略
 
-**依赖环境**: Python 3.10+
+**依赖环境**: uv、Python 3.10+
 
 > [!TIP]
-> 如果你不确定具体的指令格式，请一定要及时运行 `python main.py --help` 查看所有可用指令集合。防止出现命令错误。
+> 如果你不确定具体的指令格式，请运行 `uv run steam-scraper --help` 查看完整命令集合。
 
 ```bash
 # 1. 克隆项目 (假设已在项目根目录，可跳过)
 # git clone ... 
 
-# 2. 安装依赖 (必需)
-pip install -r requirements.txt
+# 2. 按锁文件同步 Python、运行依赖和开发工具 (必需)
+uv sync --locked
 
 # 3. 验证环境 (可选)
 # 运行此命令若无报错且显示 Banner，说明环境正常
-python main.py start
+uv run steam-scraper start
 ```
+
+`pyproject.toml` 是依赖与工具配置的唯一来源，`uv.lock` 必须随依赖变更同步提交。正式命令入口为 `uv run steam-scraper`。
 
 ## 3. 核心作业流程
 
@@ -41,17 +43,17 @@ python main.py start
 1.  **启动全流程任务**:
 
     ```bash
-    python main.py all
+    uv run steam-scraper all
     ```
     *   *行为*: 依次执行 `games` (抓取游戏信息) -> `reviews` (抓取评价) -> `export` (导出文件)。
     *   *耗时*: 取决于游戏数量和网络，可能需要数小时。
 
 2.  **应对中断**:
 
-    如果任务因意外停止（网络断开、系统重启），**不要**重新运行 `python main.py all`（这会清除进度！），请务必使用：
+    如果任务因意外停止（网络断开、系统重启），**不要**重新运行 `uv run steam-scraper all`（这会清除进度！），请务必使用：
 
     ```bash
-    python main.py all --resume
+    uv run steam-scraper all --resume
     ```
 
 ### 场景 B: 分步执行
@@ -61,15 +63,15 @@ python main.py start
 1.  **阶段一：采集游戏基本信息**
 
     ```bash
-    python main.py games
+    uv run steam-scraper games
     # 调试建议：仅抓取前 5 页进行测试，但是请先询问用户究竟准备爬取几页
-    # python main.py games --pages 5
+    # uv run steam-scraper games --pages 5
     ```
 
 2.  **阶段二：采集评价历史**
 
     ```bash
-    python main.py reviews
+    uv run steam-scraper reviews
     # 前置条件：数据库中必须已有游戏数据
     ```
 
@@ -77,10 +79,10 @@ python main.py start
 
     ```bash
     # 导出 Excel (默认)
-    python main.py export
+    uv run steam-scraper export
     
     # 导出 CSV (推荐大数据量使用，也可以一并完成做掉)
-    python main.py export --format csv
+    uv run steam-scraper export --format csv
     ```
 
 ### 场景 C: 故障修复
@@ -91,13 +93,13 @@ python main.py start
 2.  **执行重试**:
 
     ```bash
-    python main.py retry
+    uv run steam-scraper retry
     ```
     *   *策略*: 该命令会自动读取 `failures.json` 和断点记录，针对性地重试失败的 ID。建议多次运行直到失败列表清空。
 
 ## 4. 配置优化策略 (`config.yaml`)
 
-你可以通过修改 `config.yaml` 来调整程序行为。
+用户只需修改根目录 `config.yaml` 并照常运行命令；程序会自动读取修改后的值，不需要额外参数、复制文件或初始化命令。
 
 同时告知用户，本程序还没有设计兼容代理池，这是程序未来改进的方向。
 
@@ -108,6 +110,12 @@ python main.py start
 | `scraper.currency` | `us` | 若需人民币价格，修改为 `cn`。 |
 | `http.timeout` | `30` | 网络环境较差时可适当增加至 `60`。 |
 | `http.max_retries` | `3` | 建议保持默认，依靠外部的 `retry` 命令处理顽固失败。 |
+| `http.max_connections` | `100` | 连接池上限，通常无需单独调整；必须不小于保活连接数。 |
+| `http.max_keepalive_connections` | `20` | 连接池保留的空闲连接数。 |
+| `output.data_dir` | `./data` | 同时控制数据库、断点、失败日志和默认导出目录。 |
+| `output.database_file` | `steam_data.db` | SQLite 数据库文件名。 |
+| `output.checkpoint_file` | `.checkpoint.json` | 断点文件名。 |
+| `output.failure_log_file` | `failures.json` | 失败记录文件名。 |
 
 ## 5. 数据交互指南
 
@@ -141,12 +149,28 @@ AI 可以直接读取生成的数据文件进行分析，无需经过 API，可�
 ## 6. 操作注意事项
 
 *   **DO** 优先使用 `--resume` 参数，除非你或用户明确想要丢弃所有既往进度。
-*   **DO** 在长时间任务后运行 `python main.py retry` 确保数据完整性。
+*   **DO** 在长时间任务后运行 `uv run steam-scraper retry` 确保数据完整性。
 *   **DO** 监控 `data/` 目录的文件变化来确认程序是否在工作。
 *   **DON'T** 在程序运行时手动删除 `.checkpoint.json`，这会导致进度丢失。
-*   **DON'T** 频繁使用 `python main.py reset`，这会物理删除所有数据文件且不可恢复。
+*   **DON'T** 频繁使用 `uv run steam-scraper reset`，这会物理删除所有数据文件且不可恢复。
 
-## 7. 常见报错
+## 7. 工程质量检查
+
+修改 Python 代码、依赖或工程配置后，至少执行：
+
+```bash
+uv lock --check
+uv sync --locked --all-groups
+uv run ruff format --check .
+uv run ruff check .
+uv run ty check src
+uv run pytest
+uv build --no-sources
+```
+
+Ruff、ty 和测试工具位于开发依赖组，不属于构建包的运行时依赖。不要手工编辑 `uv.lock`，也不要重新创建 `requirements.txt`。
+
+## 8. 常见报错
 
 *   **Error**: `Database is locked`
     *   *原因*: 可能有其他进程（或你打开了 SQLite 浏览器）占用了数据库文件。

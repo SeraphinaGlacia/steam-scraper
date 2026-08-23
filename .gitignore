@@ -22,10 +22,19 @@ wheels/
 
 # Virtual environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
+
+# Test, lint, type-check, and coverage caches
+.pytest_cache/
+.ruff_cache/
+.ty/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # IDE
 .idea/

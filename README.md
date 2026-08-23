@@ -8,7 +8,7 @@
     <strong>用于采集 Steam 游戏基础信息与评价历史的命令行工具。</strong>
   </p>
   <p>
-    面向数据分析与课程/研究练习场景，基于 AsyncIO、SQLite 和 Rich 构建，支持分步采集、断点恢复、失败记录与 Excel 导出。
+    面向数据分析与课程/研究练习场景，基于 AsyncIO、SQLite 和 Rich 构建，支持分步采集、断点恢复、失败记录与 Excel/CSV 导出。
   </p>
 
   <p>
@@ -63,33 +63,33 @@ Steam Scraper 是一个个人开源项目，主要用于从 Steam 商店页面�
   - 主要交互方式仍然是命令行。
 
 - **数据导出**
-  - 支持将 SQLite 数据导出为 Excel 文件。
-  - 代码中包含 CSV 导出相关逻辑；如果依赖 CSV 结果，请在当前版本中运行后检查生成文件是否符合预期。
+  - 支持将 SQLite 数据导出为 Excel 工作簿或两个 CSV 文件。
+  - CSV 使用 `utf-8-sig` 编码，便于直接使用 Excel 或 Pandas 打开。
 
 ---
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 创建并同步环境
 
-建议使用 Python 3.10 或更高版本。
+项目使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 管理 Python、依赖、虚拟环境与锁文件。先安装 uv；仓库中的 `.python-version` 会让 uv 自动选择 Python 3.10。
 
 ```bash
 git clone https://github.com/SeraphinaGlacia/steam-scraper.git
 cd steam-scraper
-pip install -r requirements.txt
+uv sync --locked
 ```
 
 ### 2. 检查命令行入口
 
 ```bash
-python main.py --help
+uv run steam-scraper --help
 ```
 
-也可以运行启动页命令，确认 Rich 和 pyfiglet 等依赖已安装：
+也可以运行启动页命令，确认环境可用：
 
 ```bash
-python main.py start
+uv run steam-scraper start
 ```
 
 ### 3. 先用少量页面测试
@@ -97,21 +97,21 @@ python main.py start
 在正式运行全量采集前，建议先抓取少量页面，确认网络和数据写入正常：
 
 ```bash
-python main.py games --pages 10
-python main.py reviews
-python main.py export
+uv run steam-scraper games --pages 10
+uv run steam-scraper reviews
+uv run steam-scraper export
 ```
 
 完整流程可以使用：
 
 ```bash
-python main.py all
+uv run steam-scraper all
 ```
 
 如果任务中断，可以使用：
 
 ```bash
-python main.py all --resume
+uv run steam-scraper all --resume
 ```
 
 ---
@@ -121,28 +121,29 @@ python main.py all --resume
 ### 抓取游戏基础信息：`games`
 
 ```bash
-python main.py games              # 抓取所有分页
-python main.py games --pages 10   # 只抓取前 10 页，适合测试
-python main.py games --resume     # 从断点继续
+uv run steam-scraper games              # 抓取所有分页
+uv run steam-scraper games --pages 10   # 只抓取前 10 页，适合测试
+uv run steam-scraper games --resume     # 从断点继续
 ```
 
 ### 抓取评价历史：`reviews`
 
 ```bash
-python main.py reviews            # 抓取数据库中已有游戏的评价历史
-python main.py reviews --resume   # 从断点继续
+uv run steam-scraper reviews            # 抓取数据库中已有游戏的评价历史
+uv run steam-scraper reviews --resume   # 从断点继续
 ```
 
 也可以指定包含 AppID 的文本文件：
 
 ```bash
-python main.py reviews --input appids.txt
+uv run steam-scraper reviews --input appids.txt
 ```
 
 ### 导出数据：`export`
 
 ```bash
-python main.py export
+uv run steam-scraper export                # 导出 Excel
+uv run steam-scraper export --format csv   # 导出 CSV
 ```
 
 默认输出：
@@ -154,16 +155,16 @@ data/steam_data.xlsx
 ### 重试失败任务：`retry`
 
 ```bash
-python main.py retry              # 重试所有失败任务
-python main.py retry --type game  # 只重试游戏信息任务
-python main.py retry --type review # 只重试评价历史任务
+uv run steam-scraper retry               # 重试所有失败任务
+uv run steam-scraper retry --type game   # 只重试游戏信息任务
+uv run steam-scraper retry --type review # 只重试评价历史任务
 ```
 
 ### 清理与重置：`clean` / `reset`
 
 ```bash
-python main.py clean    # 清理缓存、断点和临时文件
-python main.py reset    # 删除数据库、导出文件、失败日志和断点文件
+uv run steam-scraper clean    # 清理缓存、断点和临时文件
+uv run steam-scraper reset    # 删除数据库、导出文件、失败日志和断点文件
 ```
 
 > [!CAUTION]
@@ -171,9 +172,26 @@ python main.py reset    # 删除数据库、导出文件、失败日志和断点
 
 ---
 
+## 开发与质量检查
+
+Ruff、ty、pytest 和 pytest-cov 位于开发依赖组，不会成为发布包的运行时依赖。修改代码后运行：
+
+```bash
+uv sync --locked --all-groups
+uv run ruff format --check .
+uv run ruff check .
+uv run ty check src
+uv run pytest
+uv build --no-sources
+```
+
+项目采用 `src/steam_scraper` 包布局；依赖和工具配置统一维护在 `pyproject.toml`，可复现版本记录在 `uv.lock`。
+
+---
+
 ## 配置说明
 
-主要配置位于 `config.yaml`：
+根目录的 `config.yaml` 是程序正式的用户配置入口。程序启动时会自动读取它；保存修改后直接运行原命令即可，不需要额外参数或初始化步骤。
 
 ```yaml
 scraper:
@@ -187,11 +205,18 @@ http:
   max_retries: 3          # 单次请求最大重试次数
   min_delay: 0.5          # 请求间隔最小值，单位：秒
   max_delay: 1.5          # 请求间隔最大值，单位：秒
+  max_connections: 100    # HTTP 连接池最大连接数
+  max_keepalive_connections: 20  # 最大空闲连接数
+  user_agent: "Mozilla/5.0 ..."  # Steam 请求使用的 User-Agent
 
 output:
-  data_dir: ./data
-  checkpoint_file: .checkpoint.json
+  data_dir: ./data                   # 所有运行结果的目录
+  database_file: steam_data.db       # SQLite 数据库文件名
+  checkpoint_file: .checkpoint.json  # 断点文件名
+  failure_log_file: failures.json    # 失败记录文件名
 ```
+
+修改 `output.data_dir` 会同时改变数据库、断点、失败日志以及默认 Excel/CSV 导出位置；数据库、断点和失败日志的文件名也在同一配置段中设置。
 
 如果遇到大量 `429 Too Many Requests`、连接超时或失败记录明显增多，建议降低 `scraper.max_workers`，并在稍后使用 `retry` 命令补抓失败项目。
 
@@ -199,13 +224,13 @@ output:
 
 ## 数据结构
 
-运行后，`data/` 目录可能包含：
+运行后，`output.data_dir` 指定的目录（默认 `data/`）可能包含：
 
 | 文件 | 说明 |
 | :--- | :--- |
 | `steam_data.db` | SQLite 数据库，包含 `games` 和 `reviews` 两张表。 |
 | `steam_data.xlsx` | Excel 导出文件，包含游戏信息和评价历史两个 Sheet。 |
-| `steam_*.csv` | CSV 导出文件；请根据当前版本实际生成情况检查。 |
+| `steam_games.csv`、`steam_reviews.csv` | 使用 `--format csv` 生成的游戏与评价 CSV 文件。 |
 | `failures.json` | 失败任务记录，包含失败类型、ID、原因和时间戳。 |
 | `.checkpoint.json` | 断点记录，用于 `--resume` 恢复任务。 |
 

@@ -1,5 +1,4 @@
-"""
-评价历史爬虫模块。
+"""评价历史爬虫模块。
 
 从 Steam 获取游戏的评价统计历史数据，支持异步并发爬取和数据库存储。
 与游戏信息爬虫不同，评价数据来自 reviewhistogram API，
@@ -9,17 +8,19 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
 
-from src.config import Config, get_config
-from src.database import DatabaseManager
-from src.models import ReviewSnapshot
-from src.utils.checkpoint import Checkpoint
-from src.utils.http_client import AsyncHttpClient
-from src.utils.ui import UIManager
+from steam_scraper.config import Config, get_config
+from steam_scraper.database import DatabaseManager
+from steam_scraper.models import ReviewSnapshot
+from steam_scraper.utils.checkpoint import Checkpoint
+from steam_scraper.utils.failure_manager import FailureManager
+from steam_scraper.utils.http_client import AsyncHttpClient
+from steam_scraper.utils.ui import UIManager
+
+_CHINA_STANDARD_TIME = timezone(timedelta(hours=8))
 
 
 class ReviewScraper:
@@ -38,12 +39,12 @@ class ReviewScraper:
 
     def __init__(
         self,
-        config: Optional[Config] = None,
-        checkpoint: Optional[Checkpoint] = None,
-        failure_manager: Optional[Any] = None,
-        ui_manager: Optional[UIManager] = None,
-        stop_event: Optional[threading.Event] = None,
-    ):
+        config: Config | None = None,
+        checkpoint: Checkpoint | None = None,
+        failure_manager: FailureManager | None = None,
+        ui_manager: UIManager | None = None,
+        stop_event: threading.Event | None = None,
+    ) -> None:
         """初始化评价爬虫。
 
         Args:
@@ -67,18 +68,22 @@ class ReviewScraper:
         """爬取指定游戏的评价历史数据并保存。
 
         Args:
-            app_id (int): Steam 游戏 ID。
-            force (bool): 强制模式，跳过失败标记检查（用于 retry 场景）。默认为 False。
-            commit_db (bool): 是否立即提交数据库事务和更新断点。默认为 True。
+            app_id: Steam 游戏 ID。
+            force: 强制模式，跳过失败标记检查（用于 retry 场景）。默认为 False。
+            commit_db: 是否立即提交数据库事务和更新断点。默认为 True。
 
         Returns:
-            tuple[list[ReviewSnapshot], bool]: (评价快照列表, 是否跳过重复)
+            包含评价快照列表和“是否跳过重复项”标记的元组。
         """
         # 检查断点（使用 review 专用状态，同时检测重复）
         if self.checkpoint and self.checkpoint.is_appid_completed(app_id, "review"):
             return [], True  # 跳过重复
         # force=True 时跳过失败检查，用于 retry 场景
-        if self.checkpoint and self.checkpoint.is_appid_failed(app_id, "review") and not force:
+        if (
+            self.checkpoint
+            and self.checkpoint.is_appid_failed(app_id, "review")
+            and not force
+        ):
             return [], False
 
         url = (
@@ -100,8 +105,9 @@ class ReviewScraper:
                 # 将时间戳转换为 UTC+8（北京时间）
                 # Steam API 返回的是 UTC 时间戳，需要加 8 小时转换为中国时区
                 # 这样确保数据日期与用户习惯的本地时间一致
-                dt_utc = datetime.datetime.utcfromtimestamp(ts)
-                dt_local = dt_utc + datetime.timedelta(hours=8)
+                dt_local = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(
+                    _CHINA_STANDARD_TIME
+                )
 
                 review = ReviewSnapshot(
                     app_id=app_id,
@@ -113,7 +119,9 @@ class ReviewScraper:
 
             # 保存到数据库
             if reviews:
-                await asyncio.to_thread(self.db.save_reviews, app_id, reviews, commit=commit_db)
+                await asyncio.to_thread(
+                    self.db.save_reviews, app_id, reviews, commit=commit_db
+                )
                 if commit_db and self.checkpoint:
                     self.checkpoint.mark_appid_completed(app_id, "review")
 
@@ -141,8 +149,8 @@ class ReviewScraper:
             self.ui.print_error(f"文件 {file_path} 不存在")
             return
 
-        app_ids = []
-        with open(file_path, "r", encoding="utf-8") as f:
+        app_ids: list[int] = []
+        with open(file_path, encoding="utf-8") as f:
             for line in f:
                 appid_str = line.strip()
                 if not appid_str:
@@ -191,16 +199,16 @@ class ReviewScraper:
         semaphore = asyncio.Semaphore(self.config.scraper.max_workers)
         # 批量提交的缓冲区
         pending_app_ids: list[int] = []
-        BATCH_SIZE = 50
+        batch_size = 50
 
         async def limited_scrape(app_id: int) -> tuple[int, list[ReviewSnapshot]]:
             """带并发限制的评价爬取函数。
-            
+
             Args:
-                app_id (int): Steam 游戏 ID。
-                
+                app_id: Steam 游戏 ID。
+
             Returns:
-                tuple[int, list[ReviewSnapshot]]: (app_id, 评价快照列表)
+                AppID 与对应评价快照列表组成的元组。
             """
             async with semaphore:
                 # 检查停止信号
@@ -227,11 +235,13 @@ class ReviewScraper:
                         pending_app_ids.append(app_id)
 
                     # 批量提交逻辑
-                    if len(pending_app_ids) >= BATCH_SIZE:
+                    if len(pending_app_ids) >= batch_size:
                         try:
                             await asyncio.to_thread(self.db.commit)
                             if self.checkpoint:
-                                self.checkpoint.mark_appids_completed(pending_app_ids, "review")
+                                self.checkpoint.mark_appids_completed(
+                                    pending_app_ids, "review"
+                                )
                         except Exception as e:
                             self.ui.print_error(f"严重错误：批量提交到数据库失败: {e}")
                             if self.stop_event:
@@ -252,7 +262,7 @@ class ReviewScraper:
                     if self.checkpoint:
                         self.checkpoint.mark_appids_completed(pending_app_ids, "review")
                 except Exception as e:
-                     self.ui.print_error(f"最后一次提交评价数据失败: {e}")
+                    self.ui.print_error(f"最后一次提交评价数据失败: {e}")
 
         # 输出跳过的重复 AppID 汇总（只汇报本轮内动态重复）
         if skipped_appids:

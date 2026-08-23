@@ -8,7 +8,7 @@
     <strong>A command-line tool for collecting Steam game metadata and review history.</strong>
   </p>
   <p>
-    Built for data analysis, coursework, and exploratory research. It uses AsyncIO, SQLite, and Rich to support step-by-step scraping, checkpoint-based resume, failure logs, and Excel export.
+    Built for data analysis, coursework, and exploratory research. It uses AsyncIO, SQLite, and Rich to support step-by-step scraping, checkpoint-based resume, failure logs, and Excel/CSV export.
   </p>
 
   <p>
@@ -63,33 +63,33 @@ It is suitable for coursework, data analysis practice, exploratory research, and
   - The primary interface is still the command line.
 
 - **Data export**
-  - Supports exporting the SQLite database to an Excel workbook.
-  - CSV-related export logic exists in the codebase; if you rely on CSV output, please verify the generated files with the current version.
+  - Exports the SQLite database to an Excel workbook or two CSV files.
+  - CSV output uses `utf-8-sig` encoding for convenient use with Excel and Pandas.
 
 ---
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Create and sync the environment
 
-Python 3.10 or later is recommended.
+The project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) to manage Python, dependencies, the virtual environment, and the lockfile. Install uv first; the repository's `.python-version` lets uv select Python 3.10 automatically.
 
 ```bash
 git clone https://github.com/SeraphinaGlacia/steam-scraper.git
 cd steam-scraper
-pip install -r requirements.txt
+uv sync --locked
 ```
 
 ### 2. Check the CLI entry point
 
 ```bash
-python main.py --help
+uv run steam-scraper --help
 ```
 
-You can also run the splash-screen command to verify that dependencies such as Rich and pyfiglet are installed:
+You can also run the splash-screen command to verify the environment:
 
 ```bash
-python main.py start
+uv run steam-scraper start
 ```
 
 ### 3. Start with a small test run
@@ -97,21 +97,21 @@ python main.py start
 Before running a full collection, it is recommended to scrape a small number of pages first and check that networking and database writes work as expected:
 
 ```bash
-python main.py games --pages 10
-python main.py reviews
-python main.py export
+uv run steam-scraper games --pages 10
+uv run steam-scraper reviews
+uv run steam-scraper export
 ```
 
 The full workflow can be started with:
 
 ```bash
-python main.py all
+uv run steam-scraper all
 ```
 
 If the task is interrupted, resume with:
 
 ```bash
-python main.py all --resume
+uv run steam-scraper all --resume
 ```
 
 ---
@@ -121,28 +121,29 @@ python main.py all --resume
 ### Scrape game metadata: `games`
 
 ```bash
-python main.py games              # Scrape all pages
-python main.py games --pages 10   # Scrape only the first 10 pages for testing
-python main.py games --resume     # Resume from checkpoint
+uv run steam-scraper games              # Scrape all pages
+uv run steam-scraper games --pages 10   # Scrape the first 10 pages for testing
+uv run steam-scraper games --resume     # Resume from checkpoint
 ```
 
 ### Scrape review history: `reviews`
 
 ```bash
-python main.py reviews            # Scrape review history for games already in the database
-python main.py reviews --resume   # Resume from checkpoint
+uv run steam-scraper reviews            # Scrape reviews for games in the database
+uv run steam-scraper reviews --resume   # Resume from checkpoint
 ```
 
 You can also provide a text file containing AppIDs:
 
 ```bash
-python main.py reviews --input appids.txt
+uv run steam-scraper reviews --input appids.txt
 ```
 
 ### Export data: `export`
 
 ```bash
-python main.py export
+uv run steam-scraper export                # Export Excel
+uv run steam-scraper export --format csv   # Export CSV
 ```
 
 Default output:
@@ -154,16 +155,16 @@ data/steam_data.xlsx
 ### Retry failed tasks: `retry`
 
 ```bash
-python main.py retry               # Retry all failed tasks
-python main.py retry --type game   # Retry only game metadata tasks
-python main.py retry --type review # Retry only review-history tasks
+uv run steam-scraper retry               # Retry all failed tasks
+uv run steam-scraper retry --type game   # Retry only game metadata tasks
+uv run steam-scraper retry --type review # Retry only review-history tasks
 ```
 
 ### Clean and reset: `clean` / `reset`
 
 ```bash
-python main.py clean    # Clean caches, checkpoints, and temporary files
-python main.py reset    # Delete database, exported files, failure logs, and checkpoints
+uv run steam-scraper clean    # Clean caches, checkpoints, and temporary files
+uv run steam-scraper reset    # Delete data, exports, failure logs, and checkpoints
 ```
 
 > [!CAUTION]
@@ -171,9 +172,26 @@ python main.py reset    # Delete database, exported files, failure logs, and che
 
 ---
 
+## Development and quality checks
+
+Ruff, ty, pytest, and pytest-cov live in development dependency groups and are not runtime dependencies of the built package. After changing code, run:
+
+```bash
+uv sync --locked --all-groups
+uv run ruff format --check .
+uv run ruff check .
+uv run ty check src
+uv run pytest
+uv build --no-sources
+```
+
+The project uses a `src/steam_scraper` package layout. Dependencies and tool settings live in `pyproject.toml`, while `uv.lock` records reproducible versions.
+
+---
+
 ## Configuration
 
-Main settings are defined in `config.yaml`:
+The root-level `config.yaml` is the program's user-facing configuration file. It is loaded automatically on startup; save your changes and run the same command without extra flags or initialization steps.
 
 ```yaml
 scraper:
@@ -187,11 +205,18 @@ http:
   max_retries: 3          # Maximum retries for a single request
   min_delay: 0.5          # Minimum delay between requests in seconds
   max_delay: 1.5          # Maximum delay between requests in seconds
+  max_connections: 100    # Maximum HTTP pool connections
+  max_keepalive_connections: 20  # Maximum idle connections
+  user_agent: "Mozilla/5.0 ..."  # User-Agent sent to Steam
 
 output:
-  data_dir: ./data
-  checkpoint_file: .checkpoint.json
+  data_dir: ./data                   # Directory for all generated data
+  database_file: steam_data.db       # SQLite database filename
+  checkpoint_file: .checkpoint.json  # Checkpoint filename
+  failure_log_file: failures.json    # Failure-log filename
 ```
+
+Changing `output.data_dir` moves the database, checkpoint, failure log, and default Excel/CSV exports together. The database, checkpoint, and failure-log filenames are configured in the same section.
 
 If you encounter many `429 Too Many Requests` responses, connection timeouts, or an unusually large number of failures, consider lowering `scraper.max_workers` and retrying failed items later with the `retry` command.
 
@@ -199,13 +224,13 @@ If you encounter many `429 Too Many Requests` responses, connection timeouts, or
 
 ## Data Files
 
-After running the scraper, the `data/` directory may contain:
+After running the scraper, the directory selected by `output.data_dir` (`data/` by default) may contain:
 
 | File | Description |
 | :--- | :--- |
 | `steam_data.db` | SQLite database containing the `games` and `reviews` tables. |
 | `steam_data.xlsx` | Excel workbook containing game metadata and review history sheets. |
-| `steam_*.csv` | CSV exports; please verify actual generation behavior with the current version. |
+| `steam_games.csv`, `steam_reviews.csv` | Game and review CSV files produced with `--format csv`. |
 | `failures.json` | Failed-task records, including type, ID, reason, and timestamp. |
 | `.checkpoint.json` | Checkpoint state used by `--resume`. |
 

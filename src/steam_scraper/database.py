@@ -1,28 +1,38 @@
-"""
-数据库管理模块。
+"""数据库管理模块。
 
 使用 SQLite 存储游戏信息和评价数据，并提供统一的 Excel 导出功能。
 选择 SQLite 是因为它无需额外服务器，数据单文件存储，便于复制和分享。
 """
 
-try:
-    import orjson
-    def json_dumps(obj):
-        return orjson.dumps(obj).decode("utf-8")
-except ImportError:
-    import json
-    def json_dumps(obj):
-        return json.dumps(obj, ensure_ascii=False)
-
-# 无论是否使用 orjson，导出逻辑中都使用了 json.loads，所以必须导入 json 模块
 import json
 import sqlite3
 from pathlib import Path
-from typing import Optional
 
-import pandas as pd
+from steam_scraper.models import GameInfo, ReviewSnapshot
 
-from src.models import GameInfo, ReviewSnapshot
+try:
+    import orjson
+except ImportError:
+
+    def _json_dumps(value: object) -> str:
+        return json.dumps(value, ensure_ascii=False)
+
+else:
+
+    def _json_dumps(value: object) -> str:
+        return orjson.dumps(value).decode("utf-8")
+
+
+def _format_json_list(value: object) -> str:
+    if not value:
+        return ""
+    if not isinstance(value, str):
+        return str(value)
+
+    decoded: object = json.loads(value)
+    if not isinstance(decoded, list):
+        return value
+    return ", ".join(str(item) for item in decoded)
 
 
 class DatabaseManager:
@@ -33,19 +43,23 @@ class DatabaseManager:
         conn: SQLite 连接对象。
     """
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path) -> None:
         """初始化数据库管理器。
 
         Args:
             db_path: 数据库路径。
         """
-        self.db_path = str(db_path)
+        db_file = Path(db_path)
+        if str(db_file) != ":memory:":
+            db_file.parent.mkdir(parents=True, exist_ok=True)
+
+        self.db_path = str(db_file)
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.init_db()
 
     def init_db(self) -> None:
         """初始化数据库表结构。
-        
+
         创建 games 和 reviews 两张表：
         - games: 存储游戏基础信息，以 app_id 为主键
         - reviews: 存储评价历史数据，使用 (app_id, date) 联合唯一约束
@@ -101,14 +115,14 @@ class DatabaseManager:
             commit: 是否立即提交事务。默认为 True。
         """
         cursor = self.conn.cursor()
-        
+
         # 将列表转换为 JSON 字符串存储
         # 使用 JSON 而非逗号分隔，因为开发商/发行商名称本身可能包含逗号
         # ensure_ascii=False 保留中文字符的原始形式，提高可读性
         # 使用 helper 函数进行统一序列化
-        developers_json = json_dumps(game.developers)
-        publishers_json = json_dumps(game.publishers)
-        genres_json = json_dumps(game.genres)
+        developers_json = _json_dumps(game.developers)
+        publishers_json = _json_dumps(game.publishers)
+        genres_json = _json_dumps(game.genres)
 
         cursor.execute(
             """
@@ -141,23 +155,25 @@ class DatabaseManager:
             return
 
         cursor = self.conn.cursor()
-        
+
         data = []
         for game in games:
-            developers_json = json_dumps(game.developers)
-            publishers_json = json_dumps(game.publishers)
-            genres_json = json_dumps(game.genres)
+            developers_json = _json_dumps(game.developers)
+            publishers_json = _json_dumps(game.publishers)
+            genres_json = _json_dumps(game.genres)
 
-            data.append((
-                game.app_id,
-                game.name,
-                game.release_date,
-                game.price,
-                developers_json,
-                publishers_json,
-                genres_json,
-                game.description,
-            ))
+            data.append(
+                (
+                    game.app_id,
+                    game.name,
+                    game.release_date,
+                    game.price,
+                    developers_json,
+                    publishers_json,
+                    genres_json,
+                    game.description,
+                )
+            )
 
         cursor.executemany(
             """
@@ -210,8 +226,6 @@ class DatabaseManager:
         if commit:
             self.conn.commit()
 
-
-
     def get_all_app_ids(self) -> list[int]:
         """获取数据库中所有已存在的 app_id。
 
@@ -223,7 +237,11 @@ class DatabaseManager:
         return [row[0] for row in cursor.fetchall()]
 
     def is_game_exists(self, app_id: int) -> bool:
-        """检查游戏是否存在。"""
+        """检查游戏是否存在。
+
+        Returns:
+            指定 AppID 已存在时返回 True。
+        """
         cursor = self.conn.cursor()
         cursor.execute("SELECT 1 FROM games WHERE app_id = ?", (app_id,))
         return cursor.fetchone() is not None
@@ -234,19 +252,21 @@ class DatabaseManager:
         Args:
             output_file: 输出文件路径。
         """
-        with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+        import pandas as pd
+
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             # 导出游戏信息
             games_df = pd.read_sql_query("SELECT * FROM games", self.conn)
-            
+
             # 处理 JSON 字段还原为逗号分隔字符串，以便于阅读
             # SQLite 中存储的是 JSON 数组（保留完整结构），
             # 但 Excel 中用户更希望看到易读的 "关卡, 动作, RPG" 格式
             for col in ["developers", "publishers", "genres"]:
                 if col in games_df.columns:
-                    games_df[col] = games_df[col].apply(
-                        lambda x: ", ".join(json.loads(x)) if x else ""
-                    )
-            
+                    games_df[col] = games_df[col].apply(_format_json_list)
+
             games_df.to_excel(writer, sheet_name="Games", index=False)
 
             # 导出评价信息
@@ -256,8 +276,8 @@ class DatabaseManager:
                 FROM reviews r 
                 LEFT JOIN games g ON r.app_id = g.app_id
                 ORDER BY r.app_id, r.date
-                """, 
-                self.conn
+                """,
+                self.conn,
             )
             reviews_df.to_excel(writer, sheet_name="Reviews", index=False)
 
@@ -271,19 +291,19 @@ class DatabaseManager:
         Args:
             output_dir: 输出目录。
         """
+        import pandas as pd
+
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 1. 导出 Games
         games_df = pd.read_sql_query("SELECT * FROM games", self.conn)
-        
+
         # 处理 JSON 字段还原为逗号分隔字符串
         for col in ["developers", "publishers", "genres"]:
             if col in games_df.columns:
-                games_df[col] = games_df[col].apply(
-                    lambda x: ", ".join(json.loads(x)) if x else ""
-                )
-        
+                games_df[col] = games_df[col].apply(_format_json_list)
+
         games_file = output_dir / "steam_games.csv"
         # 使用 utf-8-sig 编码，确保 Excel 打开时中文不乱码
         games_df.to_csv(games_file, index=False, encoding="utf-8-sig")
@@ -295,8 +315,8 @@ class DatabaseManager:
             FROM reviews r 
             LEFT JOIN games g ON r.app_id = g.app_id
             ORDER BY r.app_id, r.date
-            """, 
-            self.conn
+            """,
+            self.conn,
         )
         reviews_file = output_dir / "steam_reviews.csv"
         reviews_df.to_csv(reviews_file, index=False, encoding="utf-8-sig")
