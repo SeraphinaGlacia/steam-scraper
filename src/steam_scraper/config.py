@@ -1,15 +1,13 @@
-"""
-配置管理模块。
+"""配置管理模块。
 
 提供统一的配置管理，支持从 YAML 文件加载配置。
 """
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -23,6 +21,8 @@ class HttpConfig:
         max_retries: 最大重试次数。
         min_delay: 请求间隔最小值（秒）。
         max_delay: 请求间隔最大值（秒）。
+        max_connections: HTTP 连接池允许的最大连接数。
+        max_keepalive_connections: HTTP 连接池保留的最大空闲连接数。
         user_agent: 用户代理字符串。
     """
 
@@ -48,6 +48,7 @@ class ScraperConfig:
         language: Steam 商店语言。
         currency: Steam 商店货币代码。
         category: Steam 商店分类 ID（998 为游戏）。
+        max_workers: 同时执行的爬取任务数量。
     """
 
     language: str = "english"
@@ -62,13 +63,35 @@ class OutputConfig:
 
     Attributes:
         data_dir: 数据输出目录。
+        database_file: SQLite 数据库文件名。
         checkpoint_file: 断点文件名。
+        failure_log_file: 失败记录文件名。
     """
 
     data_dir: str = "./data"
+    database_file: str = "steam_data.db"
     checkpoint_file: str = ".checkpoint.json"
     failure_log_file: str = "failures.json"
-    db_path: str = "./data/steam_data.db"
+
+    @property
+    def data_path(self) -> Path:
+        """返回用户配置的数据目录。"""
+        return Path(self.data_dir)
+
+    @property
+    def db_path(self) -> Path:
+        """返回由数据目录和数据库文件名组成的完整路径。"""
+        return self.data_path / self.database_file
+
+    @property
+    def checkpoint_path(self) -> Path:
+        """返回由数据目录和断点文件名组成的完整路径。"""
+        return self.data_path / self.checkpoint_file
+
+    @property
+    def failure_log_path(self) -> Path:
+        """返回由数据目录和失败日志文件名组成的完整路径。"""
+        return self.data_path / self.failure_log_file
 
 
 @dataclass
@@ -94,6 +117,7 @@ class Config:
 
         Returns:
             Config: 配置对象。
+
         """
         http_data = data.get("http", {})
         scraper_data = data.get("scraper", {})
@@ -114,18 +138,27 @@ class Config:
 
         Returns:
             Config: 配置对象。
+
+        Raises:
+            ValueError: YAML 顶层不是映射时抛出。
         """
         path = Path(path)
         if not path.exists():
             return cls()
 
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+        with open(path, encoding="utf-8") as f:
+            data: object = yaml.safe_load(f)
+
+        if data is None:
+            return cls()
+        if not isinstance(data, dict):
+            msg = f"配置文件顶层必须是映射: {path}"
+            raise ValueError(msg)
 
         return cls.from_dict(data)
 
     @classmethod
-    def load(cls, config_path: Optional[str | Path] = None) -> Config:
+    def load(cls, config_path: str | Path | None = None) -> Config:
         """加载配置，优先使用指定路径，否则查找默认配置文件。
 
         Args:
@@ -140,8 +173,8 @@ class Config:
         # 查找默认配置文件
         default_paths = [
             Path("config.yaml"),
-            Path("config.yml"),
-            Path(__file__).parent.parent / "config.yaml",
+            # 从源码检出目录运行时，配置文件仍位于仓库根目录。
+            Path(__file__).resolve().parents[2] / "config.yaml",
         ]
 
         for path in default_paths:
@@ -152,7 +185,7 @@ class Config:
 
 
 # 全局默认配置实例
-_default_config: Optional[Config] = None
+_default_config: Config | None = None
 
 
 def get_config() -> Config:

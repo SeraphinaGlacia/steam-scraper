@@ -1,5 +1,4 @@
-"""
-失败记录管理模块。
+"""失败记录管理模块。
 
 提供爬取失败记录的持久化、读取和清理功能。
 与 Checkpoint 中的 failed_appids 不同，此模块存储更详细的失败信息，
@@ -10,10 +9,39 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
-from typing import Any, Optional
+from typing import TypeGuard
 
-from src.config import Config, get_config
+from typing_extensions import NotRequired, TypedDict
+
+from steam_scraper.config import Config, get_config
+
+
+class FailureRecord(TypedDict):
+    """可持久化的单条失败任务记录。"""
+
+    type: str
+    id: int | str
+    reason: str
+    timestamp: NotRequired[int]
+    context: NotRequired[dict[str, object]]
+
+
+def _is_failure_record(value: object) -> TypeGuard[FailureRecord]:
+    if not isinstance(value, dict):
+        return False
+
+    item_type = value.get("type")
+    item_id = value.get("id")
+    reason = value.get("reason")
+    timestamp = value.get("timestamp")
+    context = value.get("context")
+    return (
+        isinstance(item_type, str)
+        and isinstance(item_id, (int, str))
+        and isinstance(reason, str)
+        and (timestamp is None or isinstance(timestamp, int))
+        and (context is None or isinstance(context, dict))
+    )
 
 
 class FailureManager:
@@ -27,33 +55,35 @@ class FailureManager:
         path: 失败日志文件路径。
     """
 
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Config | None = None) -> None:
         """初始化失败管理器。
 
         Args:
             config: 可选的配置对象。
         """
         self.config = config or get_config()
-        self.path = (
-            Path(self.config.output.data_dir) / self.config.output.failure_log_file
-        )
+        self.path = self.config.output.failure_log_path
 
-    def _load_failures(self) -> list[dict[str, Any]]:
+    def _load_failures(self) -> list[FailureRecord]:
         """从文件加载失败记录。
 
         Returns:
-            list[dict]: 失败记录列表。
+            结构有效的失败记录列表；损坏记录会被忽略。
         """
         if not self.path.exists():
             return []
 
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
+            with open(self.path, encoding="utf-8") as f:
+                loaded: object = json.load(f)
+        except (OSError, json.JSONDecodeError):
             return []
 
-    def _save_failures(self, failures: list[dict[str, Any]]) -> None:
+        if not isinstance(loaded, list):
+            return []
+        return [item for item in loaded if _is_failure_record(item)]
+
+    def _save_failures(self, failures: list[FailureRecord]) -> None:
         """保存失败记录到文件。
 
         Args:
@@ -68,7 +98,7 @@ class FailureManager:
         item_type: str,
         item_id: int | str,
         reason: str,
-        context: Optional[dict] = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """记录一条失败信息。
 
@@ -93,7 +123,7 @@ class FailureManager:
                 return
 
         # 添加新记录
-        new_failure = {
+        new_failure: FailureRecord = {
             "type": item_type,
             "id": item_id,
             "reason": reason,
@@ -104,14 +134,14 @@ class FailureManager:
         self._save_failures(failures)
         print(f"已记录失败: [{item_type}] ID={item_id} - {reason}")
 
-    def get_failures(self, item_type: Optional[str] = None) -> list[dict[str, Any]]:
+    def get_failures(self, item_type: str | None = None) -> list[FailureRecord]:
         """获取失败记录。
 
         Args:
             item_type: 可选的类型过滤 ('game' 或 'review')。
 
         Returns:
-            list[dict]: 失败记录列表。
+            全部失败记录，或指定类型的失败记录。
         """
         failures = self._load_failures()
         if item_type:

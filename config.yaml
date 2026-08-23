@@ -11,7 +11,12 @@ http:
   max_retries: 3          # 最大重试次数
   min_delay: 0.5          # 请求间隔最小值（秒）
   max_delay: 1.5          # 请求间隔最大值（秒）
+  max_connections: 100    # HTTP 连接池最大连接数
+  max_keepalive_connections: 20  # HTTP 连接池最大空闲连接数
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
 output:
-  data_dir: ./data        # 数据输出目录
-  checkpoint_file: .checkpoint.json  # 断点文件
+  data_dir: ./data                 # 所有运行结果的保存目录
+  database_file: steam_data.db     # SQLite 数据库文件名
+  checkpoint_file: .checkpoint.json  # 断点文件名
+  failure_log_file: failures.json  # 失败记录文件名

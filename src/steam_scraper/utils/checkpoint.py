@@ -1,5 +1,4 @@
-"""
-断点续爬模块。
+"""断点续爬模块。
 
 提供爬取进度的持久化和恢复功能，支持多线程并发安全。
 
@@ -16,12 +15,33 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, TypedDict
 
-from src.config import Config, get_config
+from steam_scraper.config import Config, get_config
 
 # 类型别名：任务类型
 TaskType = Literal["game", "review"]
+CompletedKey = Literal["completed_appids", "completed_review_appids"]
+FailedKey = Literal["failed_appids", "failed_review_appids"]
+
+
+class CheckpointState(TypedDict):
+    """内存中的断点状态；集合用于保证查询和去重效率。"""
+
+    completed_pages: set[int]
+    completed_appids: set[int]
+    failed_appids: set[int]
+    completed_review_appids: set[int]
+    failed_review_appids: set[int]
+
+
+def _load_int_set(data: dict[object, object], key: str) -> set[int]:
+    value = data.get(key)
+    if not isinstance(value, list):
+        return set()
+    return {
+        item for item in value if isinstance(item, int) and not isinstance(item, bool)
+    }
 
 
 class Checkpoint:
@@ -46,10 +66,10 @@ class Checkpoint:
 
     def __init__(
         self,
-        path: Optional[str | Path] = None,
-        config: Optional[Config] = None,
+        path: str | Path | None = None,
+        config: Config | None = None,
         save_interval: float = 5.0,
-    ):
+    ) -> None:
         """初始化断点管理器。
 
         Args:
@@ -65,17 +85,15 @@ class Checkpoint:
         if path:
             self.path = Path(path)
         else:
-            self.path = (
-                Path(self.config.output.data_dir) / self.config.output.checkpoint_file
-            )
+            self.path = self.config.output.checkpoint_path
 
         self.state = self._load()
 
-    def _get_default_state(self) -> dict:
+    def _get_default_state(self) -> CheckpointState:
         """获取默认的空状态结构。
 
         Returns:
-            dict: 包含 games 和 reviews 分离状态的字典。内部使用 set 存储。
+            games 与 reviews 相互独立的空状态。
         """
         return {
             # Games 状态
@@ -87,36 +105,34 @@ class Checkpoint:
             "failed_review_appids": set(),
         }
 
-    def _load(self) -> dict:
+    def _load(self) -> CheckpointState:
         """从文件加载断点状态。
 
         如果文件不存在或解析失败，返回空的初始状态。
-        自动迁移旧版本的状态结构（添加 reviews 相关键）。
+        缺失或无效字段按空集合处理，避免局部损坏使整个断点失效。
         加载时将列表转换为集合以支持 O(1) 查找。
 
         Returns:
-            dict: 断点状态数据。
+            已校验并补齐全部字段的断点状态。
         """
         default = self._get_default_state()
 
         if self.path.exists():
             try:
-                with open(self.path, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                    # 保留加载的所有数据，避免丢失未来版本可能添加的键
-                    current_state = loaded.copy()
-                    
-                    # 仅处理已知的集合字段：将列表转换为集合
-                    for key, default_val in default.items():
-                        if key in current_state:
-                            # 确保只转换集合类型的字段
-                            if isinstance(default_val, set):
-                                current_state[key] = set(current_state[key])
-                        else:
-                            # 补齐当前版本的新增字段
-                            current_state[key] = default_val
-                    return current_state
-            except (json.JSONDecodeError, IOError):
+                with open(self.path, encoding="utf-8") as f:
+                    loaded: object = json.load(f)
+                if not isinstance(loaded, dict):
+                    return default
+                return CheckpointState(
+                    completed_pages=_load_int_set(loaded, "completed_pages"),
+                    completed_appids=_load_int_set(loaded, "completed_appids"),
+                    failed_appids=_load_int_set(loaded, "failed_appids"),
+                    completed_review_appids=_load_int_set(
+                        loaded, "completed_review_appids"
+                    ),
+                    failed_review_appids=_load_int_set(loaded, "failed_review_appids"),
+                )
+            except (OSError, json.JSONDecodeError):
                 pass
 
         return default
@@ -135,12 +151,13 @@ class Checkpoint:
         tmp_path = self.path.with_suffix(".tmp")
 
         # 转换为列表进行序列化（仅转换集合类型）
-        serializable_state = {}
-        for k, v in self.state.items():
-            if isinstance(v, set):
-                serializable_state[k] = list(v)
-            else:
-                serializable_state[k] = v
+        serializable_state = {
+            "completed_pages": sorted(self.state["completed_pages"]),
+            "completed_appids": sorted(self.state["completed_appids"]),
+            "failed_appids": sorted(self.state["failed_appids"]),
+            "completed_review_appids": sorted(self.state["completed_review_appids"]),
+            "failed_review_appids": sorted(self.state["failed_review_appids"]),
+        }
 
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(serializable_state, f, indent=2, ensure_ascii=False)
@@ -167,14 +184,14 @@ class Checkpoint:
 
     # ========== 状态键映射 ==========
 
-    def _get_keys(self, task_type: TaskType) -> tuple[str, str]:
+    def _get_keys(self, task_type: TaskType) -> tuple[CompletedKey, FailedKey]:
         """根据任务类型获取对应的状态键名。
 
         Args:
             task_type: 任务类型，"game" 或 "review"。
 
         Returns:
-            tuple[str, str]: (completed_key, failed_key) 元组。
+            对应的完成状态键和失败状态键。
         """
         if task_type == "game":
             return "completed_appids", "failed_appids"
