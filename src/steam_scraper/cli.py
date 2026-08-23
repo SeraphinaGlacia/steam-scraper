@@ -53,7 +53,6 @@ def build_parser() -> argparse.ArgumentParser:
   # 数据管理
   {_COMMAND} export             # 导出数据库到 Excel
   {_COMMAND} export --format csv # 导出数据库到 CSV (适合大数据量)
-  {_COMMAND} export --format csv # 导出数据库到 CSV (适合大数据量)
   {_COMMAND} clean              # 清理临时文件和缓存
   {_COMMAND} reset              # 重置项目（删除所有数据，慎用！）
   {_COMMAND} retry              # 重试所有失败的任务
@@ -77,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     # 启动界面命令
     subparsers.add_parser(
         "start",
-        help=argparse.SUPPRESS,  # 在帮助中隐藏
+        help="显示启动页并验证运行环境",
     )
 
     # 游戏信息爬取命令

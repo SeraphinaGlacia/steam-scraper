@@ -25,6 +25,14 @@ def test_main_without_command_prints_help(capsys) -> None:
     assert "Steam 游戏数据爬虫" in capsys.readouterr().out
 
 
+def test_help_has_clean_start_entry_and_unique_examples() -> None:
+    help_text = build_parser().format_help()
+
+    assert "==SUPPRESS==" not in help_text
+    assert "显示启动页并验证运行环境" in help_text
+    assert help_text.count("uv run steam-scraper export --format csv") == 1
+
+
 def test_module_entrypoint_displays_help() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "steam_scraper", "--help"],
