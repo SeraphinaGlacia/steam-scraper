@@ -76,3 +76,9 @@ def test_missing_yaml_uses_defaults(tmp_path: Path) -> None:
 
     assert config.scraper.max_workers == 20
     assert config.http.timeout == 30
+
+
+@pytest.mark.parametrize("workers", [0, -1, 1.5, True, "2"])
+def test_invalid_worker_count_is_rejected_before_scraping(workers):
+    with pytest.raises(ValueError, match="scraper.max_workers 必须是正整数"):
+        Config.from_dict({"scraper": {"max_workers": workers}})

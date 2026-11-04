@@ -56,6 +56,19 @@ class ScraperConfig:
     category: str = "998"
     max_workers: int = 20
 
+    def __post_init__(self) -> None:
+        """拒绝无法调度任务的并发配置。
+
+        Raises:
+            ValueError: 并发数不是正整数。
+        """
+        if (
+            isinstance(self.max_workers, bool)
+            or not isinstance(self.max_workers, int)
+            or self.max_workers < 1
+        ):
+            raise ValueError("scraper.max_workers 必须是正整数")
+
 
 @dataclass
 class OutputConfig:
