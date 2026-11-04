@@ -1,6 +1,6 @@
 [project]
 name = "steam-scraper"
-version = "1.0.0"
+version = "2.0.0"
 description = "用于采集 Steam 游戏信息与评价历史的异步命令行工具"
 readme = "README.md"
 license = "MIT"
@@ -34,7 +34,6 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 source-include = [
     ".python-version",
-    "AGENTS.md",
     "README_EN.md",
     "assets/**",
     "config.yaml",
