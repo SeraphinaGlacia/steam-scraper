@@ -161,6 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="excel",
         help="导出格式 (默认: excel)",
     )
+    export_parser.add_argument(
+        "--raw-csv",
+        action="store_true",
+        help="保留 CSV 原始文本供程序分析；默认会保护可能被电子表格解释为公式的文本",
+    )
 
     # 清理命令
     subparsers.add_parser(
@@ -211,6 +216,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
 
     args = parser.parse_args(argv)
+    if args.command == "export" and args.raw_csv and args.format != "csv":
+        parser.error("--raw-csv 只能与 --format csv 一起使用")
 
     if args.command is None:
         parser.print_help()
@@ -715,7 +722,9 @@ def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> bool:
                     # 默认使用 config 中的 data_dir
                     output_dir = config.output.data_path
 
-                db.export_to_csv(output_dir)
+                db.export_to_csv(
+                    output_dir, spreadsheet_safe=not getattr(args, "raw_csv", False)
+                )
 
                 # 格式化路径显示
                 path_str = str(output_dir)

@@ -332,7 +332,9 @@ class DatabaseManager:
             )
             reviews_df.to_excel(writer, sheet_name="Reviews", index=False)
 
-    def export_to_csv(self, output_dir: str | Path) -> None:
+    def export_to_csv(
+        self, output_dir: str | Path, *, spreadsheet_safe: bool = True
+    ) -> None:
         """导出所有数据到 CSV 文件。
 
         生成两个文件：
@@ -341,11 +343,12 @@ class DatabaseManager:
 
         Args:
             output_dir: 输出目录。
+            spreadsheet_safe: 是否保护可能被电子表格解释为公式的文本；
+                设为 False 可保留机器分析使用的原始值。
         """
         import pandas as pd
 
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        from steam_scraper.utils.csv_export import write_csv_pair
 
         # 1. 导出 Games
         games_df = pd.read_sql_query("SELECT * FROM games", self.conn)
@@ -354,10 +357,6 @@ class DatabaseManager:
         for col in ["developers", "publishers", "genres"]:
             if col in games_df.columns:
                 games_df[col] = games_df[col].apply(_format_json_list)
-
-        games_file = output_dir / "steam_games.csv"
-        # 使用 utf-8-sig 编码，确保 Excel 打开时中文不乱码
-        games_df.to_csv(games_file, index=False, encoding="utf-8-sig")
 
         # 2. 导出 Reviews
         reviews_df = pd.read_sql_query(
@@ -369,8 +368,9 @@ class DatabaseManager:
             """,
             self.conn,
         )
-        reviews_file = output_dir / "steam_reviews.csv"
-        reviews_df.to_csv(reviews_file, index=False, encoding="utf-8-sig")
+        write_csv_pair(
+            games_df, reviews_df, output_dir, spreadsheet_safe=spreadsheet_safe
+        )
 
     def close(self) -> None:
         """关闭数据库连接。"""

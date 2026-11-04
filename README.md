@@ -253,3 +253,5 @@ output:
 ## 评价统计口径
 
 评价导出包含 `granularity` 列，区分日、周、月统计。升级与旧数据重抓方式见 [评价数据说明](docs/review-data.md)。
+
+CSV 默认保护可能被解释为公式的文本；程序分析可用 `export --format csv --raw-csv` 获取原值。详见 [CSV 导出说明](docs/csv-export.md) 和 [失败恢复说明](docs/recovery.md)。

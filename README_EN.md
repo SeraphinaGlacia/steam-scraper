@@ -253,3 +253,5 @@ After running the scraper, the directory selected by `output.data_dir` (`data/` 
 ## Review granularity
 
 Review exports include `granularity` to distinguish daily, weekly, and monthly buckets. See [data semantics and migration](docs/review-data.md#english).
+
+CSV output protects formula-like text by default; use `export --format csv --raw-csv` for original strings in programmatic analysis. See [CSV export](docs/csv-export.md#english) and [failure recovery](docs/recovery.md#english).

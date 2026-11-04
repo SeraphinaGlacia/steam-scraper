@@ -38,6 +38,7 @@ source-include = [
     "README_EN.md",
     "assets/**",
     "config.yaml",
+    "docs/**",
     "tests/**",
     "uv.lock",
 ]
