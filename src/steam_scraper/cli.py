@@ -21,13 +21,20 @@ import pyfiglet
 
 from steam_scraper.config import Config
 from steam_scraper.database import DatabaseManager
-from steam_scraper.scrapers.game_scraper import GameScraper
-from steam_scraper.scrapers.review_scraper import ReviewScraper
+from steam_scraper.scrapers.game_scraper import GameScraper, SteamSearchError
+from steam_scraper.scrapers.review_scraper import ReviewScraper, read_app_ids
 from steam_scraper.utils.checkpoint import Checkpoint
 from steam_scraper.utils.failure_manager import FailureManager, FailureRecord
 from steam_scraper.utils.ui import UIManager
 
 _COMMAND = "uv run steam-scraper"
+
+
+def _positive_page_count(value: str) -> int:
+    page_count = int(value)
+    if page_count < 1:
+        raise argparse.ArgumentTypeError("页数必须大于 0")
+    return page_count
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     games_parser.add_argument(
         "--pages",
-        type=int,
+        type=_positive_page_count,
         default=None,
         metavar="N",
         help="爬取页数，不指定则爬取全部",
@@ -125,7 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     all_parser.add_argument(
         "--pages",
-        type=int,
+        type=_positive_page_count,
         default=None,
         metavar="N",
         help="爬取页数限制",
@@ -197,6 +204,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     Args:
         argv: 待解析的参数；省略时读取当前进程命令行。
+
+    Raises:
+        SystemExit: 参数无效、输入不可读、搜索失败或导出失败时返回非零退出状态。
     """
     parser = build_parser()
 
@@ -233,22 +243,27 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    if args.command == "games":
-        run_games_scraper(config, args, failure_manager, ui, stop_event)
-    elif args.command == "start":
-        run_start(ui)
-    elif args.command == "reviews":
-        run_reviews_scraper(config, args, failure_manager, ui, stop_event)
-    elif args.command == "all":
-        run_all(config, args, failure_manager, ui, stop_event)
-    elif args.command == "export":
-        run_export(config, args, ui)
-    elif args.command == "clean":
-        run_clean(config, failure_manager, ui)
-    elif args.command == "reset":
-        run_reset(config, failure_manager, ui)
-    elif args.command == "retry":
-        run_retry(config, args, failure_manager, ui)
+    try:
+        if args.command == "games":
+            run_games_scraper(config, args, failure_manager, ui, stop_event)
+        elif args.command == "start":
+            run_start(ui)
+        elif args.command == "reviews":
+            run_reviews_scraper(config, args, failure_manager, ui, stop_event)
+        elif args.command == "all":
+            run_all(config, args, failure_manager, ui, stop_event)
+        elif args.command == "export":
+            if not run_export(config, args, ui):
+                raise SystemExit(1)
+        elif args.command == "clean":
+            run_clean(config, failure_manager, ui)
+        elif args.command == "reset":
+            run_reset(config, failure_manager, ui)
+        elif args.command == "retry":
+            run_retry(config, args, failure_manager, ui, stop_event)
+    except (OSError, UnicodeError, ValueError, SteamSearchError) as error:
+        ui.print_error(str(error))
+        raise SystemExit(1) from error
 
 
 def run_reset(config: Config, failure_manager: FailureManager, ui: UIManager) -> None:
@@ -419,7 +434,11 @@ async def run_games_scraper_async(
     try:
         await scraper.run(max_pages=args.pages)
     finally:
-        checkpoint.save()
+        try:
+            checkpoint.save()
+        finally:
+            await scraper.client.close()
+            scraper.db.close()
 
     elapsed = time.time() - start_time
     duration = str(timedelta(seconds=int(elapsed)))
@@ -460,7 +479,15 @@ async def run_reviews_scraper_async(
         failure_manager: 失败管理器。
         ui: UI 管理器。
         stop_event: 停止事件标志。
+
+    Raises:
+        OSError: 输入文件不存在或不可读。
+        ValueError: 输入编码无效或没有有效 AppID。
     """
+    # 输入失败不能清除已有恢复进度，也无需创建数据库或 HTTP 客户端。
+    input_app_ids = read_app_ids(args.input, ui) if args.input else None
+    if input_app_ids == []:
+        raise ValueError("输入文件中没有有效的正整数 AppID")
     checkpoint = Checkpoint(config=config)
 
     # 确保在爬取评价前游戏数据完整，避免外键约束错误或数据缺失
@@ -488,8 +515,8 @@ async def run_reviews_scraper_async(
 
     start_time = time.time()
     try:
-        if args.input:
-            await scraper.scrape_from_file(args.input)
+        if input_app_ids is not None:
+            await scraper.scrape_from_list(input_app_ids)
         else:
             db = DatabaseManager(config.output.db_path)
             app_ids = db.get_all_app_ids()
@@ -501,7 +528,11 @@ async def run_reviews_scraper_async(
 
             await scraper.scrape_from_list(app_ids)
     finally:
-        checkpoint.save()
+        try:
+            checkpoint.save()
+        finally:
+            await scraper.client.close()
+            scraper.db.close()
 
     elapsed = time.time() - start_time
     duration = str(timedelta(seconds=int(elapsed)))
@@ -544,21 +575,25 @@ async def run_all_async(
         failure_manager: 失败管理器。
         ui: UI 管理器。
         stop_event: 停止事件标志。
+
+    Raises:
+        SystemExit: 任一导出格式失败时返回非零退出状态。
     """
     checkpoint = Checkpoint(config=config)
     if not args.resume:
         checkpoint.clear()
 
     start_time = time.time()
+    game_scraper = GameScraper(
+        config=config,
+        checkpoint=checkpoint,
+        failure_manager=failure_manager,
+        ui_manager=ui,
+        stop_event=stop_event,
+    )
+    review_scraper: ReviewScraper | None = None
     try:
         ui.print_panel("Step 1/3: 爬取游戏基础信息", style="blue")
-        game_scraper = GameScraper(
-            config=config,
-            checkpoint=checkpoint,
-            failure_manager=failure_manager,
-            ui_manager=ui,
-            stop_event=stop_event,
-        )
         await game_scraper.run(max_pages=args.pages)
         # 阶段性保存，防止Step 2崩溃导致Step 1进度丢失
         checkpoint.save()
@@ -616,18 +651,27 @@ async def run_all_async(
 
         # 同时导出 Excel 和 CSV 两种格式
         # 使用 None 作为 output，让 run_export 内部根据 config 动态生成默认路径
-        await asyncio.to_thread(
+        excel_exported = await asyncio.to_thread(
             run_export, config, argparse.Namespace(output=None, format="excel"), ui
         )
-        await asyncio.to_thread(
+        csv_exported = await asyncio.to_thread(
             run_export, config, argparse.Namespace(output=None, format="csv"), ui
         )
+        if not (excel_exported and csv_exported):
+            raise SystemExit(1)
 
         elapsed = time.time() - start_time
         duration = str(timedelta(seconds=int(elapsed)))
         ui.print_success(f"🎉 全部完成！Enjoy your data. (总耗时: {duration})")
     finally:
-        checkpoint.save()
+        try:
+            checkpoint.save()
+        finally:
+            await game_scraper.client.close()
+            game_scraper.db.close()
+            if review_scraper is not None:
+                await review_scraper.client.close()
+                review_scraper.db.close()
 
 
 def run_all(
@@ -641,8 +685,12 @@ def run_all(
     asyncio.run(run_all_async(config, args, failure_manager, ui, stop_event))
 
 
-def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> None:
-    """导出数据。"""
+def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> bool:
+    """导出数据，供命令行报告退出状态。
+
+    Returns:
+        成功导出时为 True；缺少数据库或导出失败时为 False。
+    """
     ui.print_info(f"正在导出数据 ({args.format})...")
 
     if not config.output.db_path.exists():
@@ -650,7 +698,7 @@ def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> None:
             f"数据库文件不存在: {config.output.db_path}\n"
             f"请先运行 '{_COMMAND} games' 等相关命令抓取数据。"
         )
-        return
+        return False
 
     db = DatabaseManager(config.output.db_path)
     try:
@@ -691,9 +739,11 @@ def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> None:
                 ui.print_success(f"导出成功！文件保存在: [bold]{path_str}[/bold]")
 
             progress.update(task, completed=100)
+        return True
 
     except Exception as e:
         ui.print_error(f"导出失败: {e}")
+        return False
     finally:
         db.close()
 
@@ -703,6 +753,7 @@ async def run_retry_async(
     args: argparse.Namespace,
     failure_manager: FailureManager,
     ui: UIManager,
+    stop_event: threading.Event | None = None,
 ) -> None:
     """异步运行重试逻辑。
 
@@ -711,6 +762,7 @@ async def run_retry_async(
         args: 命令行参数。
         failure_manager: 失败管理器。
         ui: UI 管理器。
+        stop_event: 停止事件标志；收到信号后不再启动下一项重试。
     """
     ui.print_info("开始检查失败项目...")
 
@@ -745,6 +797,12 @@ async def run_retry_async(
             )
             existing_ids.add(("review", app_id))
 
+    failures = [
+        failure
+        for failure in failures
+        if args.type == "all" or failure["type"] == args.type
+    ]
+
     if not failures:
         ui.print_success("没有找到失败记录，Perfect!")
         return
@@ -770,12 +828,14 @@ async def run_retry_async(
         checkpoint=checkpoint,
         failure_manager=failure_manager,
         ui_manager=ui,
+        stop_event=stop_event,
     )
     review_scraper = ReviewScraper(
         config=config,
         checkpoint=checkpoint,
         failure_manager=failure_manager,
         ui_manager=ui,
+        stop_event=stop_event,
     )
 
     # 先处理 games，再处理 reviews
@@ -789,26 +849,26 @@ async def run_retry_async(
             task = progress.add_task("重试中...", total=len(failures))
 
             for failure in failures:
+                if stop_event and stop_event.is_set():
+                    break
                 item_type = failure["type"]
                 item_id = int(failure["id"])
-
-                if args.type != "all" and item_type != args.type:
-                    progress.update(task, advance=1)
-                    continue
 
                 retry_count += 1
                 is_success = False
 
                 try:
                     if item_type == "game":
-                        info, _ = await game_scraper.process_game(item_id, force=True)
-                        if info:
+                        info, skipped = await game_scraper.process_game(
+                            item_id, force=True
+                        )
+                        if info is not None or skipped:
                             is_success = True
                     elif item_type == "review":
                         reviews, _ = await review_scraper.scrape_reviews(
                             item_id, force=True
                         )
-                        if reviews:
+                        if reviews is not None:
                             is_success = True
                 except Exception:
                     pass
@@ -819,17 +879,19 @@ async def run_retry_async(
 
                 progress.update(task, advance=1)
     finally:
-        checkpoint.save()
-
-    # 最后关闭客户端连接
-    await game_scraper.client.close()
-    await review_scraper.client.close()
+        try:
+            checkpoint.save()
+        finally:
+            await game_scraper.client.close()
+            await review_scraper.client.close()
+            game_scraper.db.close()
+            review_scraper.db.close()
 
     ui.print_panel(
         f"重试结束。\n"
         f"尝试: {retry_count}\n"
         f"成功: [green]{success_count}[/green]\n"
-        f"剩余: [red]{retry_count - success_count}[/red]",
+        f"剩余: [red]{len(failures) - success_count}[/red]",
         title="重试报告",
     )
 
@@ -839,9 +901,10 @@ def run_retry(
     args: argparse.Namespace,
     failure_manager: FailureManager,
     ui: UIManager,
+    stop_event: threading.Event | None = None,
 ) -> None:
     """运行重试逻辑（入口包装）。"""
-    asyncio.run(run_retry_async(config, args, failure_manager, ui))
+    asyncio.run(run_retry_async(config, args, failure_manager, ui, stop_event))
 
 
 if __name__ == "__main__":
