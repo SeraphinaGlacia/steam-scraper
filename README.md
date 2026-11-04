@@ -7,7 +7,7 @@
   <p>异步采集 · 断点续传 · SQLite 存储 · Excel / CSV 导出</p>
 
   <p>
-    <img src="assets/terminal-preview.png" alt="Steam Scraper 实际终端界面" width="1000">
+    <img src="assets/terminal-preview.gif" alt="Steam Scraper 真实终端录屏（每次命令输入约 1 秒，采集与导出保持原速）" width="1000">
   </p>
 
   <p>

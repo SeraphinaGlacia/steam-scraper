@@ -7,7 +7,7 @@
   <p>Async collection · Resumable runs · SQLite storage · Excel / CSV export</p>
 
   <p>
-    <img src="assets/terminal-preview.png" alt="Steam Scraper running in a terminal" width="1000">
+    <img src="assets/terminal-preview.gif" alt="Steam Scraper terminal recording (about 1 second per command entry; collection and export at original speed)" width="1000">
   </p>
 
   <p>
