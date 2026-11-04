@@ -25,7 +25,7 @@ from steam_scraper.scrapers.game_scraper import GameScraper, SteamSearchError
 from steam_scraper.scrapers.review_scraper import ReviewScraper, read_app_ids
 from steam_scraper.utils.checkpoint import Checkpoint
 from steam_scraper.utils.failure_manager import FailureManager, FailureRecord
-from steam_scraper.utils.ui import UIManager
+from steam_scraper.utils.ui import UIManager, terminal_text
 
 _COMMAND = "uv run steam-scraper"
 
@@ -269,7 +269,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         elif args.command == "retry":
             run_retry(config, args, failure_manager, ui, stop_event)
     except (OSError, UnicodeError, ValueError, SteamSearchError) as error:
-        ui.print_error(str(error))
+        ui.print_error(terminal_text(str(error)))
         raise SystemExit(1) from error
 
 
@@ -311,7 +311,7 @@ def run_reset(config: Config, failure_manager: FailureManager, ui: UIManager) ->
                     shutil.rmtree(item)
                 ui.print(f"已删除: [dim]{item}[/dim]")
             except Exception as e:
-                ui.print_error(f"删除失败 {item}: {e}")
+                ui.print_error(terminal_text(f"删除失败 {item}: {e}"))
     else:
         ui.print_warning(f"目录不存在: {data_dir}")
 
@@ -751,7 +751,7 @@ def run_export(config: Config, args: argparse.Namespace, ui: UIManager) -> bool:
         return True
 
     except Exception as e:
-        ui.print_error(f"导出失败: {e}")
+        ui.print_error(terminal_text(f"导出失败: {e}"))
         return False
     finally:
         db.close()
@@ -823,7 +823,7 @@ async def run_retry_async(
     table.add_column("Reason", style="red")
 
     for f in failures:
-        table.add_row(f["type"], str(f["id"]), f["reason"][:50])
+        table.add_row(f["type"], str(f["id"]), terminal_text(f["reason"][:50]))
 
     ui.console.print(table)
 

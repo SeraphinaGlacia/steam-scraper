@@ -20,7 +20,7 @@ from steam_scraper.models import ReviewGranularity, ReviewSnapshot
 from steam_scraper.utils.checkpoint import Checkpoint
 from steam_scraper.utils.failure_manager import FailureManager
 from steam_scraper.utils.http_client import AsyncHttpClient
-from steam_scraper.utils.ui import UIManager
+from steam_scraper.utils.ui import UIManager, terminal_text
 
 _DbArgs = ParamSpec("_DbArgs")
 
@@ -52,7 +52,7 @@ def read_app_ids(file_path: str | Path, ui: UIManager | None = None) -> list[int
             if app_id > 0:
                 app_ids.append(app_id)
             elif ui:
-                ui.print_warning(f"无效的 AppID: {app_id_text}")
+                ui.print_warning(terminal_text(f"无效的 AppID: {app_id_text}"))
     return app_ids
 
 
@@ -237,7 +237,7 @@ class ReviewScraper:
 
         except Exception as e:
             error_msg = f"爬取游戏 {app_id} 评价历史失败: {e}"
-            self.ui.print_error(error_msg)
+            self.ui.print_error(terminal_text(error_msg))
             if self.failure_manager:
                 self.failure_manager.log_failure("review", app_id, str(e))
             if self.checkpoint:

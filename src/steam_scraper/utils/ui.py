@@ -18,7 +18,31 @@ from rich.progress import (
 )
 from rich.prompt import Confirm
 from rich.table import Table
+from rich.text import Text
 from rich.theme import Theme
+
+
+def terminal_text(value: str) -> Text:
+    """将外部文本转换为安全的终端显示内容。
+
+    C0、DEL 和 C1 控制字符显示为可见的十六进制转义，其他 Unicode 字符保留。
+    返回的 Text 不解析 Rich 标记；普通 print 可使用其 plain 属性。
+    只处理显示副本，不改变原始数据。
+
+    Args:
+        value: 来自文件、远端响应或异常的外部文本。
+
+    Returns:
+        不含终端控制字符、按字面显示的 Rich 文本。
+    """
+    return Text(
+        "".join(
+            f"\\x{ord(char):02x}"
+            if ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F
+            else char
+            for char in value
+        )
+    )
 
 
 class UIManager:
@@ -58,21 +82,21 @@ class UIManager:
         """
         self.console.print(f"✅ {message}", style="success")
 
-    def print_error(self, message: str) -> None:
+    def print_error(self, message: str | Text) -> None:
         """打印错误消息（红色加粗带叉号图标）。
 
         Args:
-            message: 错误消息内容。
+            message: 可信的 Rich 标记字符串，或经 terminal_text 处理的外部文本。
         """
-        self.console.print(f"❌ {message}", style="error")
+        self.console.print("❌ ", message, sep="", style="error")
 
-    def print_warning(self, message: str) -> None:
+    def print_warning(self, message: str | Text) -> None:
         """打印警告消息（黄色带警告图标）。
 
         Args:
-            message: 警告消息内容。
+            message: 可信的 Rich 标记字符串，或经 terminal_text 处理的外部文本。
         """
-        self.console.print(f"⚠️  {message}", style="warning")
+        self.console.print("⚠️  ", message, sep="", style="warning")
 
     def print_info(self, message: str) -> None:
         """打印普通信息（青色带信息图标）。

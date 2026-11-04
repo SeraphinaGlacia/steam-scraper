@@ -18,7 +18,7 @@ from steam_scraper.models import GameInfo
 from steam_scraper.utils.checkpoint import Checkpoint
 from steam_scraper.utils.failure_manager import FailureManager
 from steam_scraper.utils.http_client import AsyncHttpClient
-from steam_scraper.utils.ui import UIManager
+from steam_scraper.utils.ui import UIManager, terminal_text
 
 _RESULTS_PER_PAGE = 25
 
@@ -157,7 +157,7 @@ class GameScraper:
 
         except Exception as e:
             error_msg = f"获取游戏 {app_id} 详情失败: {e}"
-            self.ui.print_error(error_msg)
+            self.ui.print_error(terminal_text(error_msg))
             if self.failure_manager:
                 self.failure_manager.log_failure("game", app_id, str(e))
 
@@ -384,7 +384,7 @@ class GameScraper:
                     await result_queue.put((app_id, game_info, skipped))
 
                 except Exception as e:
-                    self.ui.print_error(f"Worker Error {app_id}: {e}")
+                    self.ui.print_error(terminal_text(f"Worker Error {app_id}: {e}"))
                 finally:
                     id_queue.task_done()
                     progress.update(game_task, advance=1)
@@ -435,7 +435,9 @@ class GameScraper:
                     try:
                         await _commit_batch_impl(buffer_games, buffer_ids, failed_ids)
                     except Exception as e:
-                        self.ui.print_error(f"严重错误：批量提交到数据库失败: {e}")
+                        self.ui.print_error(
+                            terminal_text(f"严重错误：批量提交到数据库失败: {e}")
+                        )
                         commit_errors.append(e)
                         stop_event.set()
                     finally:
@@ -448,7 +450,7 @@ class GameScraper:
                 try:
                     await _commit_batch_impl(buffer_games, buffer_ids, failed_ids)
                 except Exception as e:
-                    self.ui.print_error(f"最后一次提交失败: {e}")
+                    self.ui.print_error(terminal_text(f"最后一次提交失败: {e}"))
                     commit_errors.append(e)
                     stop_event.set()
 

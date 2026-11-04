@@ -16,6 +16,7 @@ from pathlib import Path
 from typing_extensions import NotRequired, TypedDict
 
 from steam_scraper.config import Config, get_config
+from steam_scraper.utils.ui import terminal_text
 
 
 class FailureRecord(TypedDict):
@@ -178,7 +179,7 @@ class FailureManager:
         }
         failures.append(new_failure)
         self._save_failures(failures)
-        print(f"已记录失败: [{item_type}] ID={item_id} - {reason}")
+        print(terminal_text(f"已记录失败: [{item_type}] ID={app_id} - {reason}").plain)
 
     def get_failures(self, item_type: str | None = None) -> list[FailureRecord]:
         """获取失败记录。
