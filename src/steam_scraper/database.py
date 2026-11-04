@@ -6,6 +6,7 @@
 
 import json
 import sqlite3
+import tempfile
 from pathlib import Path
 
 from steam_scraper.models import GameInfo, ReviewSnapshot
@@ -300,6 +301,8 @@ class DatabaseManager:
     def export_to_excel(self, output_file: str | Path) -> None:
         """导出所有数据到 Excel。
 
+        完整写出后才替换目标文件；导出失败时保留原有文件。
+
         Args:
             output_file: 输出文件路径。
         """
@@ -307,30 +310,39 @@ class DatabaseManager:
 
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            # 导出游戏信息
-            games_df = pd.read_sql_query("SELECT * FROM games", self.conn)
+        with tempfile.TemporaryDirectory(
+            dir=output_path.parent, prefix=".steam-export-"
+        ) as temporary_dir:
+            temporary_file = Path(temporary_dir) / output_path.name
+            with pd.ExcelWriter(temporary_file, engine="openpyxl") as writer:
+                games_df = pd.read_sql_query("SELECT * FROM games", self.conn)
 
-            # 处理 JSON 字段还原为逗号分隔字符串，以便于阅读
-            # SQLite 中存储的是 JSON 数组（保留完整结构），
-            # 但 Excel 中用户更希望看到易读的 "关卡, 动作, RPG" 格式
-            for col in ["developers", "publishers", "genres"]:
-                if col in games_df.columns:
-                    games_df[col] = games_df[col].apply(_format_json_list)
+                # 数据库保留 JSON 结构，表格中用逗号分隔以方便阅读。
+                for col in ["developers", "publishers", "genres"]:
+                    if col in games_df.columns:
+                        games_df[col] = games_df[col].apply(_format_json_list)
 
-            games_df.to_excel(writer, sheet_name="Games", index=False)
+                games_df.to_excel(writer, sheet_name="Games", index=False)
 
-            # 导出评价信息
-            reviews_df = pd.read_sql_query(
-                """
-                SELECT r.*, g.name as game_name 
-                FROM reviews r 
-                LEFT JOIN games g ON r.app_id = g.app_id
-                ORDER BY r.app_id, r.date
-                """,
-                self.conn,
-            )
-            reviews_df.to_excel(writer, sheet_name="Reviews", index=False)
+                reviews_df = pd.read_sql_query(
+                    """
+                    SELECT r.*, g.name as game_name
+                    FROM reviews r
+                    LEFT JOIN games g ON r.app_id = g.app_id
+                    ORDER BY r.app_id, r.date
+                    """,
+                    self.conn,
+                )
+                reviews_df.to_excel(writer, sheet_name="Reviews", index=False)
+
+                # 商店文案是普通文本；openpyxl 默认把以等号开头的字符串识别为公式。
+                for sheet in writer.sheets.values():
+                    for row in sheet.iter_rows():
+                        for cell in row:
+                            if cell.data_type == "f":
+                                cell.data_type = "s"
+
+            temporary_file.replace(output_path)
 
     def export_to_csv(
         self, output_dir: str | Path, *, spreadsheet_safe: bool = True
