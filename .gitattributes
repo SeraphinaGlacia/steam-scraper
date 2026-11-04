@@ -1,0 +1,12 @@
+# Keep development files out of GitHub source archives and git archive output.
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.github export-ignore
+/.agent export-ignore
+/.agents export-ignore
+/docs export-ignore
+/scripts export-ignore
+/tests export-ignore
+
+# Runtime output is created as needed; the repository only tracks data/.gitkeep.
+/data export-ignore

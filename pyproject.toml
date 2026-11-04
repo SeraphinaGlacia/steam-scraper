@@ -37,9 +37,9 @@ source-include = [
     "README_EN.md",
     "assets/**",
     "config.yaml",
-    "tests/**",
     "uv.lock",
 ]
+source-exclude = ["/.github", "/docs", "/tests"]
 
 [dependency-groups]
 dev = [
