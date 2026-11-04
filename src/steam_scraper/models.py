@@ -31,7 +31,7 @@ class GameInfo:
         app_id: Steam 游戏 ID。
         name: 游戏名称。
         release_date: 发行日期字符串。
-        price: 价格（已格式化的字符串）。
+        price: 已格式化的价格；免费游戏为 "Free"，价格未知时为空字符串。
         developers: 开发商列表。
         publishers: 发行商列表。
         genres: 游戏类型列表。
@@ -41,7 +41,7 @@ class GameInfo:
     app_id: int
     name: str
     release_date: str = ""
-    price: str = "Free"
+    price: str = ""
     developers: list[str] = field(default_factory=list)
     publishers: list[str] = field(default_factory=list)
     genres: list[str] = field(default_factory=list)
@@ -66,11 +66,10 @@ class GameInfo:
         )
 
         price_data = data.get("price_overview")
-        price = (
-            _string_value(price_data.get("final_formatted"), "Free")
-            if isinstance(price_data, Mapping)
-            else "Free"
-        )
+        # 未发售或当前地区不可购买的游戏也可能没有 price_overview，不能视为免费。
+        price = "Free" if data.get("is_free") is True else ""
+        if isinstance(price_data, Mapping):
+            price = _string_value(price_data.get("final_formatted")) or price
 
         genres: list[str] = []
         raw_genres = data.get("genres")
