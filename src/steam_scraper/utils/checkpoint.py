@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -157,7 +158,8 @@ class Checkpoint:
     def _save_to_disk(self) -> None:
         """原子保存断点状态到文件。
 
-        使用先写临时文件再重命名的方式，确保写入过程中断电或崩溃不会损坏原文件。
+        独占创建同目录临时文件，避免跟随预先放置的软链接。
+        写入完成后再替换原文件，失败时保留原断点并清理本次临时文件。
         保存时将集合转换为列表以支持 JSON 序列化。
         此方法应在持有 _lock 的情况下调用。
 
@@ -165,7 +167,6 @@ class Checkpoint:
             OSError: 文件系统操作失败时抛出。
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.path.with_suffix(".tmp")
 
         # 转换为列表进行序列化（仅转换集合类型）
         serializable_state = {
@@ -178,10 +179,22 @@ class Checkpoint:
             "failed_review_appids": sorted(self.state["failed_review_appids"]),
         }
 
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(serializable_state, f, indent=2, ensure_ascii=False)
-
-        os.replace(tmp_path, self.path)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.path.parent,
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as file:
+                temporary_path = Path(file.name)
+                json.dump(serializable_state, file, indent=2, ensure_ascii=False)
+            os.replace(temporary_path, self.path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
         self._last_save_time = time.time()
 
     def _request_save(self) -> None:
