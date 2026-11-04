@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import time
-from typing import TypeGuard
+from pathlib import Path
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -20,28 +22,46 @@ class FailureRecord(TypedDict):
     """可持久化的单条失败任务记录。"""
 
     type: str
-    id: int | str
+    id: int
     reason: str
     timestamp: NotRequired[int]
     context: NotRequired[dict[str, object]]
 
 
-def _is_failure_record(value: object) -> TypeGuard[FailureRecord]:
+def _parse_app_id(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        app_id = int(value)
+    except ValueError:
+        return None
+    return app_id if app_id > 0 else None
+
+
+def _parse_failure_record(value: object) -> FailureRecord | None:
     if not isinstance(value, dict):
-        return False
+        return None
 
     item_type = value.get("type")
-    item_id = value.get("id")
+    app_id = _parse_app_id(value.get("id"))
     reason = value.get("reason")
     timestamp = value.get("timestamp")
     context = value.get("context")
-    return (
-        isinstance(item_type, str)
-        and isinstance(item_id, (int, str))
-        and isinstance(reason, str)
-        and (timestamp is None or isinstance(timestamp, int))
-        and (context is None or isinstance(context, dict))
-    )
+    if (
+        not isinstance(item_type, str)
+        or item_type not in ("game", "review")
+        or app_id is None
+        or not isinstance(reason, str)
+        or (timestamp is not None and not isinstance(timestamp, int))
+        or (context is not None and not isinstance(context, dict))
+    ):
+        return None
+    record: FailureRecord = {"type": item_type, "id": app_id, "reason": reason}
+    if isinstance(timestamp, int):
+        record["timestamp"] = timestamp
+    if isinstance(context, dict):
+        record["context"] = context
+    return record
 
 
 class FailureManager:
@@ -81,17 +101,37 @@ class FailureManager:
 
         if not isinstance(loaded, list):
             return []
-        return [item for item in loaded if _is_failure_record(item)]
+        # 兼容旧日志中的字符串 ID，避免重试成功后无法按整数 ID 删除记录。
+        failures: dict[tuple[str, int], FailureRecord] = {}
+        for item in loaded:
+            record = _parse_failure_record(item)
+            if record is not None:
+                failures[(record["type"], record["id"])] = record
+        return list(failures.values())
 
     def _save_failures(self, failures: list[FailureRecord]) -> None:
-        """保存失败记录到文件。
+        """原子保存失败记录，写入失败时保留原有日志。
 
         Args:
             failures: 失败记录列表。
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(failures, f, indent=2, ensure_ascii=False)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.path.parent,
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as file:
+                temporary_path = Path(file.name)
+                json.dump(failures, file, indent=2, ensure_ascii=False)
+            os.replace(temporary_path, self.path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     def log_failure(
         self,
@@ -107,13 +147,19 @@ class FailureManager:
             item_id: 项目 ID (如 app_id)。
             reason: 失败原因描述。
             context: 可选的上下文信息。
+
+        Raises:
+            ValueError: 任务类型不是 game/review，或 ID 不是正整数时抛出。
         """
+        app_id = _parse_app_id(item_id)
+        if item_type not in ("game", "review") or app_id is None:
+            raise ValueError("失败任务必须使用 game/review 类型和正整数 AppID")
         failures = self._load_failures()
 
         # 检查是否已存在相同的失败记录（避免重复）
         # 如果同一个项目多次失败，只保留最新的一条，避免日志膨胀
         for failure in failures:
-            if failure["type"] == item_type and failure["id"] == item_id:
+            if failure["type"] == item_type and failure["id"] == app_id:
                 # 更新已存在记录的原因和时间，保留最新的失败信息
                 failure["reason"] = reason
                 failure["timestamp"] = int(time.time())
@@ -125,7 +171,7 @@ class FailureManager:
         # 添加新记录
         new_failure: FailureRecord = {
             "type": item_type,
-            "id": item_id,
+            "id": app_id,
             "reason": reason,
             "timestamp": int(time.time()),
             "context": context or {},
@@ -159,9 +205,10 @@ class FailureManager:
         """
         failures = self._load_failures()
         initial_len = len(failures)
+        app_id = _parse_app_id(item_id)
 
         failures = [
-            f for f in failures if not (f["type"] == item_type and f["id"] == item_id)
+            f for f in failures if not (f["type"] == item_type and f["id"] == app_id)
         ]
 
         if len(failures) < initial_len:
