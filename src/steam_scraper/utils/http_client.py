@@ -57,8 +57,6 @@ class AsyncHttpClient:
                 headers={"User-Agent": self.config.http.user_agent},
                 timeout=httpx.Timeout(self.config.http.timeout),
                 limits=limits,
-                # 部分地区访问 Steam 时存在证书链异常，当前策略继续跳过验证。
-                verify=False,
             )
         return self._client
 
