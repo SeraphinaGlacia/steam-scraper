@@ -99,7 +99,7 @@ async def test_game_pipeline_commits_unique_games_without_deadlock(
 
 
 @pytest.mark.asyncio
-async def test_review_timestamp_is_converted_to_china_date(
+async def test_review_bucket_keeps_its_utc_start_date(
     app_config: Config,
 ) -> None:
     checkpoint = Checkpoint(path=app_config.output.checkpoint_path, save_interval=0)
@@ -125,5 +125,6 @@ async def test_review_timestamp_is_converted_to_china_date(
         scraper.db.close()
 
     assert skipped is False
-    assert reviews[0].date == date(2026, 8, 24)
+    assert reviews[0].date == date(2026, 8, 23)
+    assert reviews[0].granularity == "unknown"
     assert checkpoint.is_appid_completed(10, "review")

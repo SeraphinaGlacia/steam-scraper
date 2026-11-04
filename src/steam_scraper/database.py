@@ -10,6 +10,20 @@ from pathlib import Path
 
 from steam_scraper.models import GameInfo, ReviewSnapshot
 
+_REVIEWS_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        app_id INTEGER,
+        date TEXT,
+        recommendations_up INTEGER,
+        recommendations_down INTEGER,
+        granularity TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (granularity IN ('day', 'week', 'month', 'unknown')),
+        FOREIGN KEY (app_id) REFERENCES games (app_id),
+        UNIQUE(app_id, date, granularity)
+    )
+"""
+
 try:
     import orjson
 except ImportError:
@@ -62,7 +76,9 @@ class DatabaseManager:
 
         创建 games 和 reviews 两张表：
         - games: 存储游戏基础信息，以 app_id 为主键
-        - reviews: 存储评价历史数据，使用 (app_id, date) 联合唯一约束
+        - reviews: 按 (app_id, date, granularity) 区分日、周、月统计桶
+
+        旧评价表缺少粒度时，事务性迁移并保留为 unknown，等待重新采集替换。
         """
         cursor = self.conn.cursor()
 
@@ -88,24 +104,39 @@ class DatabaseManager:
             """
         )
 
-        # 创建评价表
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS reviews (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                app_id INTEGER,
-                date TEXT,
-                recommendations_up INTEGER,
-                recommendations_down INTEGER,
-                FOREIGN KEY (app_id) REFERENCES games (app_id),
-                -- 联合唯一约束防止重复插入同一天的评价数据
-                -- 并且允许通过 INSERT OR REPLACE 更新已存在的记录
-                UNIQUE(app_id, date)
-            )
-            """
-        )
-
+        self._init_reviews()
         self.conn.commit()
+
+    def _init_reviews(self) -> None:
+        """迁移旧唯一约束，同时保留无法确定粒度的历史数据。
+
+        Raises:
+            sqlite3.Error: 迁移失败；原表及其数据保持不变。
+        """
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(reviews)")}
+        self.conn.execute("SAVEPOINT review_schema")
+        try:
+            if columns and "granularity" not in columns:
+                self.conn.execute("ALTER TABLE reviews RENAME TO reviews_legacy")
+                self.conn.execute(_REVIEWS_SCHEMA)
+                self.conn.execute(
+                    """
+                    INSERT INTO reviews
+                        (id, app_id, date, recommendations_up,
+                         recommendations_down, granularity)
+                    SELECT id, app_id, date, recommendations_up,
+                           recommendations_down, 'unknown'
+                    FROM reviews_legacy
+                    """
+                )
+                self.conn.execute("DROP TABLE reviews_legacy")
+            else:
+                self.conn.execute(_REVIEWS_SCHEMA)
+        except sqlite3.Error:
+            self.conn.execute("ROLLBACK TO review_schema")
+            self.conn.execute("RELEASE review_schema")
+            raise
+        self.conn.execute("RELEASE review_schema")
 
     def save_game(self, game: GameInfo, commit: bool = True) -> None:
         """保存或更新游戏信息。
@@ -193,17 +224,21 @@ class DatabaseManager:
     def save_reviews(
         self, app_id: int, reviews: list[ReviewSnapshot], commit: bool = True
     ) -> None:
-        """保存评价历史数据。
+        """原子替换一个游戏的完整评价接口快照。
+
+        空快照清除该游戏旧记录；日、周、月桶可以并存，不可跨粒度相加。
+        写入失败时保留替换前的数据，延迟提交时仍由调用方提交整个事务。
 
         Args:
             app_id: 游戏 ID。
-            reviews: 评价快照列表。
+            reviews: 本次接口返回的全部统计桶，包括近期日桶。
             commit: 是否立即提交事务。默认为 True。
-        """
-        if not reviews:
-            return
 
-        cursor = self.conn.cursor()
+        Raises:
+            ValueError: 记录所属 AppID 与目标游戏不一致。
+        """
+        if any(review.app_id != app_id for review in reviews):
+            raise ValueError("评价记录的 AppID 必须与目标游戏一致")
 
         data = [
             (
@@ -211,20 +246,36 @@ class DatabaseManager:
                 review.date.strftime("%Y-%m-%d"),
                 review.recommendations_up,
                 review.recommendations_down,
+                review.granularity,
             )
             for review in reviews
         ]
 
-        cursor.executemany(
-            """
-            INSERT OR REPLACE INTO reviews 
-            (app_id, date, recommendations_up, recommendations_down)
-            VALUES (?, ?, ?, ?)
-            """,
-            data,
-        )
-        if commit:
-            self.conn.commit()
+        # 外层事务使 RELEASE 不会提前提交 commit=False 的批次。
+        if not self.conn.in_transaction:
+            self.conn.execute("BEGIN")
+        self.conn.execute("SAVEPOINT replace_reviews")
+        try:
+            self.conn.execute("DELETE FROM reviews WHERE app_id = ?", (app_id,))
+            self.conn.executemany(
+                """
+                INSERT INTO reviews
+                    (app_id, date, recommendations_up, recommendations_down, granularity)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                data,
+            )
+            if commit:
+                # COMMIT 失败时仍保留保存点，避免后续任务意外提交本次失败的替换。
+                self.conn.commit()
+            else:
+                self.conn.execute("RELEASE replace_reviews")
+        except Exception:
+            # 某些 SQLite 错误会自动回滚整个事务，此时保存点已不存在。
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK TO replace_reviews")
+                self.conn.execute("RELEASE replace_reviews")
+            raise
 
     def get_all_app_ids(self) -> list[int]:
         """获取数据库中所有已存在的 app_id。

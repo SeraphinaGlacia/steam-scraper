@@ -23,6 +23,8 @@ from steam_scraper.config import Config, get_config
 TaskType = Literal["game", "review"]
 CompletedKey = Literal["completed_appids", "completed_review_appids"]
 FailedKey = Literal["failed_appids", "failed_review_appids"]
+_PAGE_CHECKPOINT_VERSION = 2
+_REVIEW_CHECKPOINT_VERSION = 1
 
 
 class CheckpointState(TypedDict):
@@ -110,6 +112,8 @@ class Checkpoint:
 
         如果文件不存在或解析失败，返回空的初始状态。
         缺失或无效字段按空集合处理，避免局部损坏使整个断点失效。
+        旧版在入队时就保存页面完成状态，迁移时重新扫描页面并保留 AppID 状态。
+        旧评价断点没有记录统计粒度，迁移时重新采集评价，保留游戏状态。
         加载时将列表转换为集合以支持 O(1) 查找。
 
         Returns:
@@ -124,13 +128,26 @@ class Checkpoint:
                 if not isinstance(loaded, dict):
                     return default
                 return CheckpointState(
-                    completed_pages=_load_int_set(loaded, "completed_pages"),
+                    completed_pages=(
+                        _load_int_set(loaded, "completed_pages")
+                        if loaded.get("page_checkpoint_version")
+                        == _PAGE_CHECKPOINT_VERSION
+                        else set()
+                    ),
                     completed_appids=_load_int_set(loaded, "completed_appids"),
                     failed_appids=_load_int_set(loaded, "failed_appids"),
-                    completed_review_appids=_load_int_set(
-                        loaded, "completed_review_appids"
+                    completed_review_appids=(
+                        _load_int_set(loaded, "completed_review_appids")
+                        if loaded.get("review_checkpoint_version")
+                        == _REVIEW_CHECKPOINT_VERSION
+                        else set()
                     ),
-                    failed_review_appids=_load_int_set(loaded, "failed_review_appids"),
+                    failed_review_appids=(
+                        _load_int_set(loaded, "failed_review_appids")
+                        if loaded.get("review_checkpoint_version")
+                        == _REVIEW_CHECKPOINT_VERSION
+                        else set()
+                    ),
                 )
             except (OSError, json.JSONDecodeError):
                 pass
@@ -152,6 +169,8 @@ class Checkpoint:
 
         # 转换为列表进行序列化（仅转换集合类型）
         serializable_state = {
+            "page_checkpoint_version": _PAGE_CHECKPOINT_VERSION,
+            "review_checkpoint_version": _REVIEW_CHECKPOINT_VERSION,
             "completed_pages": sorted(self.state["completed_pages"]),
             "completed_appids": sorted(self.state["completed_appids"]),
             "failed_appids": sorted(self.state["failed_appids"]),

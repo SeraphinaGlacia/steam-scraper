@@ -249,3 +249,7 @@ After running the scraper, the directory selected by `output.data_dir` (`data/` 
 <div align="center">
   <p>Made with ❤️ by SeraphinaGlacia / Zhou Xinlei</p>
 </div>
+
+## Review granularity
+
+Review exports include `granularity` to distinguish daily, weekly, and monthly buckets. See [data semantics and migration](docs/review-data.md#english).

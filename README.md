@@ -249,3 +249,7 @@ output:
 <div align="center">
   <p>Made with ❤️ by SeraphinaGlacia / Xinlei Zhou</p>
 </div>
+
+## 评价统计口径
+
+评价导出包含 `granularity` 列，区分日、周、月统计。升级与旧数据重抓方式见 [评价数据说明](docs/review-data.md)。

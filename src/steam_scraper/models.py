@@ -8,6 +8,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Literal
+
+ReviewGranularity = Literal["day", "week", "month", "unknown"]
 
 
 def _string_value(value: object, default: str = "") -> str:
@@ -92,16 +95,18 @@ class GameInfo:
 
 @dataclass
 class ReviewSnapshot:
-    """评价快照数据。
+    """按统计周期汇总的评价快照。
 
     Attributes:
         app_id: Steam 游戏 ID。
-        date: 评价日期。
-        recommendations_up: 好评数量。
-        recommendations_down: 差评数量。
+        date: 统计周期起点的 UTC 日期。
+        recommendations_up: 该统计周期内的好评数量。
+        recommendations_down: 该统计周期内的差评数量。
+        granularity: 统计周期；unknown 表示来源未提供粒度，不应当作单日数据。
     """
 
     app_id: int
     date: date
     recommendations_up: int
     recommendations_down: int
+    granularity: ReviewGranularity = "day"
