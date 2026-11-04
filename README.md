@@ -1,4 +1,7 @@
 <div align="center">
+  <p>
+    <img src="assets/demo.svg" alt="Steam Scraper 标志" width="600">
+  </p>
   <h1>Steam Scraper</h1>
   <p><strong>采集 Steam 游戏信息与评价历史的命令行工具。</strong></p>
   <p>异步采集 · 断点续传 · SQLite 存储 · Excel / CSV 导出</p>

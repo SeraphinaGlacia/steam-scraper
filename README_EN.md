@@ -1,4 +1,7 @@
 <div align="center">
+  <p>
+    <img src="assets/demo.svg" alt="Steam Scraper logo" width="600">
+  </p>
   <h1>Steam Scraper</h1>
   <p><strong>A command-line tool for Steam game metadata and review history.</strong></p>
   <p>Async collection · Resumable runs · SQLite storage · Excel / CSV export</p>
